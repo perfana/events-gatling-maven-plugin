@@ -22,6 +22,13 @@ import static java.nio.file.StandardCopyOption.REPLACE_EXISTING;
 import static java.util.Arrays.stream;
 import static org.codehaus.plexus.util.StringUtils.isBlank;
 
+import io.perfana.eventscheduler.EventScheduler;
+import io.perfana.eventscheduler.EventSchedulerBuilder;
+import io.perfana.eventscheduler.api.EventLogger;
+import io.perfana.eventscheduler.api.SchedulerExceptionHandler;
+import io.perfana.eventscheduler.api.config.EventSchedulerConfig;
+import io.perfana.eventscheduler.exception.EventCheckFailureException;
+import io.perfana.eventscheduler.exception.handler.KillSwitchException;
 import java.io.BufferedWriter;
 import java.io.File;
 import java.io.IOException;
@@ -39,6 +46,7 @@ import org.apache.maven.artifact.Artifact;
 import org.apache.maven.artifact.DependencyResolutionRequiredException;
 import org.apache.maven.plugin.MojoExecutionException;
 import org.apache.maven.plugin.MojoFailureException;
+import org.apache.maven.plugin.logging.Log;
 import org.apache.maven.plugins.annotations.*;
 import org.apache.maven.project.MavenProject;
 import org.apache.maven.toolchain.Toolchain;
@@ -53,6 +61,9 @@ import org.codehaus.plexus.util.SelectorUtils;
     defaultPhase = LifecyclePhase.INTEGRATION_TEST,
     requiresDependencyResolution = ResolutionScope.TEST)
 public class GatlingMojo extends AbstractGatlingExecutionMojo {
+
+  private final Object eventSchedulerLock = new Object();
+  private EventScheduler eventScheduler;
 
   /** A name of a Simulation class to run. */
   @Parameter(property = "gatling.simulationClass")
@@ -136,14 +147,24 @@ public class GatlingMojo extends AbstractGatlingExecutionMojo {
   private MavenProject project;
 
   /** Executes Gatling simulations. */
+  @Parameter EventSchedulerConfig eventSchedulerConfig;
+
+  /** Executes Gatling simulations. */
   @Override
   public void execute() throws MojoExecutionException, MojoFailureException {
     checkPluginPreConditions();
 
     if (skip) {
-      getLog().info("Skipping gatling-maven-plugin");
+      getLog().info("Skipping events-gatling-maven-plugin");
       return;
     }
+
+    boolean abortEventScheduler = false;
+
+    boolean isEventSchedulerEnabled =
+        eventSchedulerConfig != null && eventSchedulerConfig.isSchedulerEnabled();
+    eventScheduler =
+        isEventSchedulerEnabled ? createEventScheduler(eventSchedulerConfig, getLog()) : null;
 
     // Create results directories
     if (!resultsFolder.exists() && !resultsFolder.mkdirs()) {
@@ -169,25 +190,101 @@ public class GatlingMojo extends AbstractGatlingExecutionMojo {
       }
 
     } catch (Exception e) {
-      if (failOnError) {
-        if (e instanceof GatlingSimulationAssertionsFailedException) {
-          throw new MojoFailureException(e.getMessage(), e);
-        } else if (e instanceof MojoFailureException) {
-          throw (MojoFailureException) e;
-        } else if (e instanceof MojoExecutionException) {
-          throw (MojoExecutionException) e;
+      getLog().debug(">>> Inside catch exception: " + e);
+      // AbortSchedulerException should just fall through and be handled like other exceptions
+      // For KillSwitchException, go on with check results and assertions instead
+      if (!(e instanceof KillSwitchException)) {
+        if (failOnError) {
+          getLog()
+              .debug(">>> Fail on error is enabled (true), setting abortEventScheduler to true.");
+          abortEventScheduler = true;
+          if (e instanceof GatlingSimulationAssertionsFailedException) {
+            throw new MojoFailureException(e.getMessage(), e);
+          } else if (e instanceof MojoFailureException) {
+            throw (MojoFailureException) e;
+          } else if (e instanceof MojoExecutionException) {
+            throw (MojoExecutionException) e;
+          } else {
+            throw new MojoExecutionException("Gatling failed.", e);
+          }
         } else {
-          throw new MojoExecutionException("Gatling failed.", e);
+          getLog()
+              .warn(
+                  "There were some errors while running your simulation, but failOnError was set to false won't fail your build.");
         }
+        ex = e instanceof GatlingSimulationAssertionsFailedException ? null : e;
       } else {
-        getLog()
-            .warn(
-                "There were some errors while running your simulation, but failOnError was set to false won't fail your build.");
+        getLog().debug(">>> KillSwitchException found.");
       }
-      ex = e instanceof GatlingSimulationAssertionsFailedException ? null : e;
     } finally {
       recordSimulationResults(ex);
+      if (eventScheduler != null) {
+        synchronized (eventSchedulerLock) {
+          if (abortEventScheduler && !eventScheduler.isSessionStopped()) {
+            getLog().debug(">>> Abort is called in finally: abortEventScheduler is true");
+            // implicit stop session
+            eventScheduler.abortSession();
+          } else {
+            getLog()
+                .debug(
+                    ">>> No abort called: "
+                        + "abort event scheduler is "
+                        + abortEventScheduler
+                        + ", stop is already called is "
+                        + eventScheduler.isSessionStopped());
+          }
+        }
+      }
     }
+
+    if (eventScheduler != null && !eventScheduler.isSessionStopped()) {
+      getLog().debug(">>> Stop session (because not isSessionStopped())");
+      eventScheduler.stopSession();
+      try {
+        getLog().debug(">>> Call check results");
+        eventScheduler.checkResults();
+      } catch (EventCheckFailureException e) {
+        getLog().debug(">>> EventCheckFailureException: " + e.getMessage());
+        if (!continueOnAssertionFailure) {
+          throw e;
+        } else {
+          getLog()
+              .warn(
+                  "EventCheck failures found, but continue on assert failure is enabled:"
+                      + e.getMessage());
+        }
+      }
+    }
+  }
+
+  private void startScheduler(
+      EventScheduler eventScheduler, SchedulerExceptionHandler schedulerExceptionHandler) {
+    eventScheduler.addKillSwitch(schedulerExceptionHandler);
+    eventScheduler.startSession();
+    addShutdownHookForEventScheduler(eventScheduler);
+  }
+
+  private void addShutdownHookForEventScheduler(EventScheduler eventScheduler) {
+    final Thread main = Thread.currentThread();
+    Runnable shutdowner =
+        () -> {
+          synchronized (eventScheduler) {
+            if (!eventScheduler.isSessionStopped()) {
+              getLog().info("Shutdown Hook: abort event scheduler session!");
+              // implicit stop session
+              eventScheduler.abortSession();
+            }
+          }
+
+          // try to hold on to main thread to let the abort event tasks finish properly
+          try {
+            main.join(4000);
+          } catch (InterruptedException e) {
+            getLog().warn("Interrupt while waiting for abort to finish.");
+          }
+        };
+    Thread eventSchedulerShutdownThread = new Thread(shutdowner, "eventSchedulerShutdownThread");
+    Runtime.getRuntime().addShutdownHook(eventSchedulerShutdownThread);
   }
 
   private Set<File> runDirectories() {
@@ -493,5 +590,44 @@ public class GatlingMojo extends AbstractGatlingExecutionMojo {
 
   private boolean isConcreteClass(Class<?> clazz) {
     return !clazz.isInterface() && !Modifier.isAbstract(clazz.getModifiers());
+  }
+
+  private static EventScheduler createEventScheduler(
+      EventSchedulerConfig eventSchedulerConfig, Log log) {
+
+    EventLogger logger =
+        new EventLogger() {
+          @Override
+          public void info(String message) {
+            log.info(message);
+          }
+
+          @Override
+          public void warn(String message) {
+            log.warn(message);
+          }
+
+          @Override
+          public void error(String message) {
+            log.error(message);
+          }
+
+          @Override
+          public void error(String message, Throwable throwable) {
+            log.error(message, throwable);
+          }
+
+          @Override
+          public void debug(final String message) {
+            if (isDebugEnabled()) log.debug(message);
+          }
+
+          @Override
+          public boolean isDebugEnabled() {
+            return eventSchedulerConfig.isDebugEnabled();
+          }
+        };
+
+    return EventSchedulerBuilder.of(eventSchedulerConfig, logger);
   }
 }

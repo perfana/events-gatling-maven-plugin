@@ -16,12 +16,17 @@
  */
 package io.gatling.mojo;
 
+import io.perfana.eventscheduler.api.SchedulerExceptionHandler;
+import io.perfana.eventscheduler.api.SchedulerExceptionType;
+import io.perfana.eventscheduler.exception.handler.AbortSchedulerException;
+import io.perfana.eventscheduler.exception.handler.KillSwitchException;
 import java.io.File;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map.Entry;
+import org.apache.commons.exec.*;
 import org.apache.commons.exec.CommandLine;
 import org.apache.commons.exec.DefaultExecutor;
 import org.apache.commons.exec.Executor;
@@ -43,6 +48,29 @@ class Fork {
   private final boolean propagateSystemProperties;
   private final Log log;
   private final File workingDirectory;
+
+  // volatile because possibly multiple threads are involved
+  private volatile SchedulerExceptionType schedulerExceptionType = SchedulerExceptionType.NONE;
+
+  private final ExecuteWatchdog gatlingProcessWatchDog =
+      new ExecuteWatchdog(ExecuteWatchdog.INFINITE_TIMEOUT);
+
+  private final SchedulerExceptionHandler schedulerExceptionHandler =
+      new SchedulerExceptionHandler() {
+        @Override
+        public void kill(String message) {
+          log.info("Killing running process, message: " + message);
+          schedulerExceptionType = SchedulerExceptionType.KILL;
+          gatlingProcessWatchDog.destroyProcess();
+        }
+
+        @Override
+        public void abort(String message) {
+          log.info("Killing running process, message: " + message);
+          schedulerExceptionType = SchedulerExceptionType.ABORT;
+          gatlingProcessWatchDog.destroyProcess();
+        }
+      };
 
   private final List<String> jvmArgs = new ArrayList<>();
   private final List<String> args = new ArrayList<>();
@@ -77,6 +105,10 @@ class Fork {
     this.propagateSystemProperties = propagateSystemProperties;
     this.log = log;
     this.workingDirectory = workingDirectory;
+  }
+
+  SchedulerExceptionHandler getSchedulerExceptionHandler() {
+    return schedulerExceptionHandler;
   }
 
   private String toWindowsShortName(String value) {
@@ -164,9 +196,26 @@ class Fork {
       log.debug(cl.toString());
     }
 
-    int exitValue = exec.execute(cl);
-    if (exitValue != 0) {
-      throw new MojoFailureException("command line returned non-zero value:" + exitValue);
+    exec.setWatchdog(gatlingProcessWatchDog);
+
+    try {
+      int exitValue = exec.execute(cl);
+      if (exitValue != 0) {
+        throw new MojoFailureException("command line returned non-zero value:" + exitValue);
+      }
+    } catch (Exception e) {
+      // these are set by the SchedulerExceptionHandler
+      if (schedulerExceptionType == SchedulerExceptionType.KILL) {
+        throw new KillSwitchException("KillSwitch killed the process! " + e.getMessage());
+      } else if (schedulerExceptionType == SchedulerExceptionType.ABORT) {
+        throw new AbortSchedulerException("AbortScheduler stopped the process! " + e.getMessage());
+      }
+      if (log.isDebugEnabled()) {
+        log.debug("Exception from executor for: " + cl.toString(), e);
+      }
+      // can expect exceptions from killed gatling process here, e.g. via kill -TERM <pid> (code 130
+      // or 143)
+      throw e;
     }
   }
 

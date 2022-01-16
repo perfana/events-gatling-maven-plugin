@@ -7,11 +7,11 @@
         <version>9</version>
     </parent>
 
-    <groupId>io.gatling</groupId>
-    <artifactId>gatling-maven-plugin</artifactId>
-    <version>0.0.0</version>
-    <name>gatling-maven-plugin</name>
-    <description>gatling-maven-plugin</description>
+    <groupId>io.perfana</groupId>
+    <artifactId>events-gatling-maven-plugin</artifactId>
+    <version>0.0.0.0</version>
+    <name>events-gatling-maven-plugin</name>
+    <description>Forked from gatling-maven-plugin, this version adds event-scheduler integration.</description>
     <packaging>maven-plugin</packaging>
 
     <inceptionYear>2011</inceptionYear>
@@ -23,12 +23,22 @@
             <name>Stephane Landelle</name>
             <organization>Gatling Corp</organization>
         </developer>
+        <developer>
+            <id>daniel@perfana.io</id>
+            <name>Daniel Moll</name>
+            <organization>Perfana</organization>
+        </developer>
+        <developer>
+            <id>peter.paul@perfana.io</id>
+            <name>Peter Paul Bakker</name>
+            <organization>Perfana</organization>
+        </developer>
     </developers>
 
     <scm>
-        <connection>scm:git:git:@github.com:gatling/gatling-maven-plugin.git</connection>
-        <developerConnection>scm:git:git:@github.com:gatling/gatling-maven-plugin.git</developerConnection>
-        <url>https://github.com/gatling/gatling-maven-plugin</url>
+        <connection>scm:git:git:@github.com:perfana/events-gatling-maven-plugin.git</connection>
+        <developerConnection>scm:git:git:@github.com:parfana/events-gatling-maven-plugin.git</developerConnection>
+        <url>https://github.com/perfana/events-gatling-maven-plugin</url>
         <tag>HEAD</tag>
     </scm>
 
@@ -57,6 +67,7 @@
         <maven-gpg-plugin.version>3.0.1</maven-gpg-plugin.version>
         <maven-surefire-plugin.version>2.22.2</maven-surefire-plugin.version>
         <spotless-maven-plugin.version>2.19.1</spotless-maven-plugin.version>
+        <event-scheduler.version>3.0.2</event-scheduler.version>
     </properties>
 
     <dependencies>
@@ -104,6 +115,11 @@
             <artifactId>gatling-enterprise-plugin-commons</artifactId>
             <version>1.0.0</version>
         </dependency>
+        <dependency>
+            <groupId>io.perfana</groupId>
+            <artifactId>event-scheduler</artifactId>
+            <version>${event-scheduler.version}</version>
+        </dependency>
     </dependencies>
 
     <build>
@@ -147,7 +163,7 @@
                 <extensions>true</extensions>
                 <configuration>
                     <serverId>sonatype-nexus-staging</serverId>
-                    <nexusUrl>https://s01.oss.sonatype.org/</nexusUrl>
+<!--                    <nexusUrl>https://s01.oss.sonatype.org/</nexusUrl>-->
                 </configuration>
             </plugin>
             <plugin>

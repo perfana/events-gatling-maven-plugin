@@ -1,3 +1,14 @@
+events gatling maven plugin
+===========================
+
+This is build on a fork of the gatling-maven-plugin.
+* https://github.com/gatling/gatling-maven-plugin
+
+It adds events during a gatling performance test.
+* https://github.com/stokpop/event-scheduler
+
+Code additions have been indicated in the changed java files.
+
 Gatling
 =======
 
@@ -40,3 +51,8 @@ This product depends on plexus-utils, distributed by CodeHaus:
 
   * License: license/LICENSE.plexus-utils.al20.txt (Apache License v2.0)
   * Homepage: https://codehaus-plexus.github.io/plexus-utils
+
+This product depends on okhttp, distributed by Square, Inc:
+
+* License: license/LICENSE.okhttp.al20.txt
+* Homepage: http://square.github.io/okhttp/
