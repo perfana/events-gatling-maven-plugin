@@ -161,9 +161,11 @@ public class GatlingMojo extends AbstractGatlingExecutionMojo {
       return;
     }
 
+    getLog().debug(">>> Start execute: " + eventSchedulerConfig);
+
     boolean abortEventScheduler = false;
 
-    boolean isEventSchedulerEnabled =
+    isEventSchedulerEnabled =
         eventSchedulerConfig != null && eventSchedulerConfig.isSchedulerEnabled();
     eventScheduler =
         isEventSchedulerEnabled ? createEventScheduler(eventSchedulerConfig, getLog()) : null;
@@ -351,9 +353,9 @@ public class GatlingMojo extends AbstractGatlingExecutionMojo {
     if (isEventSchedulerEnabled) {
       SchedulerExceptionHandler exceptionHandler = forkedGatling.getSchedulerExceptionHandler();
       startScheduler(eventScheduler, exceptionHandler);
-    }
-    else {
-      getLog().warn("The Event Scheduler is disabled. Use 'eventSchedulerEnabled' property to enable.");
+    } else {
+      getLog()
+          .warn("The Event Scheduler is disabled. Use 'eventSchedulerEnabled' property to enable.");
     }
 
     try {
