@@ -149,6 +149,8 @@ public class GatlingMojo extends AbstractGatlingExecutionMojo {
   /** Executes Gatling simulations. */
   @Parameter EventSchedulerConfig eventSchedulerConfig;
 
+  private boolean isEventSchedulerEnabled = false;
+
   /** Executes Gatling simulations. */
   @Override
   public void execute() throws MojoExecutionException, MojoFailureException {
@@ -345,6 +347,15 @@ public class GatlingMojo extends AbstractGatlingExecutionMojo {
             propagateSystemProperties,
             getLog(),
             workingDirectory);
+
+    if (isEventSchedulerEnabled) {
+      SchedulerExceptionHandler exceptionHandler = forkedGatling.getSchedulerExceptionHandler();
+      startScheduler(eventScheduler, exceptionHandler);
+    }
+    else {
+      getLog().warn("The Event Scheduler is disabled. Use 'eventSchedulerEnabled' property to enable.");
+    }
+
     try {
       forkedGatling.run();
     } catch (ExecuteException e) {
