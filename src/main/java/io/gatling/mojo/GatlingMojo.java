@@ -27,6 +27,7 @@ import io.perfana.eventscheduler.EventSchedulerBuilder;
 import io.perfana.eventscheduler.api.EventLogger;
 import io.perfana.eventscheduler.api.SchedulerExceptionHandler;
 import io.perfana.eventscheduler.api.config.EventSchedulerConfig;
+import io.perfana.eventscheduler.api.message.EventMessage;
 import io.perfana.eventscheduler.exception.EventCheckFailureException;
 import io.perfana.eventscheduler.exception.handler.KillSwitchException;
 import java.io.BufferedWriter;
@@ -146,14 +147,18 @@ public class GatlingMojo extends AbstractGatlingExecutionMojo {
   @Parameter(defaultValue = "${project}", readonly = true)
   private MavenProject project;
 
-  /** Executes Gatling simulations. */
   @Parameter EventSchedulerConfig eventSchedulerConfig;
 
   private boolean isEventSchedulerEnabled = false;
 
+  /** This is the list of projects currently slated to be built by Maven. */
+  @Parameter(defaultValue = "${reactorProjects}", required = true, readonly = true)
+  private List<MavenProject> projects;
+
   /** Executes Gatling simulations. */
   @Override
   public void execute() throws MojoExecutionException, MojoFailureException {
+
     checkPluginPreConditions();
 
     if (skip) {
@@ -261,22 +266,21 @@ public class GatlingMojo extends AbstractGatlingExecutionMojo {
     }
   }
 
-  private void startScheduler(
-      EventScheduler eventScheduler, SchedulerExceptionHandler schedulerExceptionHandler) {
-    eventScheduler.addKillSwitch(schedulerExceptionHandler);
-    eventScheduler.startSession();
-    addShutdownHookForEventScheduler(eventScheduler);
+  private void startScheduler(EventScheduler scheduler, SchedulerExceptionHandler handler) {
+    scheduler.addKillSwitch(handler);
+    scheduler.startSession();
+    addShutdownHookForEventScheduler(scheduler);
   }
 
-  private void addShutdownHookForEventScheduler(EventScheduler eventScheduler) {
+  private void addShutdownHookForEventScheduler(EventScheduler scheduler) {
     final Thread main = Thread.currentThread();
     Runnable shutdowner =
         () -> {
-          synchronized (eventScheduler) {
-            if (!eventScheduler.isSessionStopped()) {
+          synchronized (scheduler) {
+            if (!scheduler.isSessionStopped()) {
               getLog().info("Shutdown Hook: abort event scheduler session!");
               // implicit stop session
-              eventScheduler.abortSession();
+              scheduler.abortSession();
             }
           }
 
@@ -352,6 +356,7 @@ public class GatlingMojo extends AbstractGatlingExecutionMojo {
 
     if (isEventSchedulerEnabled) {
       SchedulerExceptionHandler exceptionHandler = forkedGatling.getSchedulerExceptionHandler();
+      sendTestConfig(eventScheduler);
       startScheduler(eventScheduler, exceptionHandler);
     } else {
       getLog()
@@ -364,6 +369,42 @@ public class GatlingMojo extends AbstractGatlingExecutionMojo {
       if (e.getExitValue() == 2) throw new GatlingSimulationAssertionsFailedException(e);
       else throw e; /* issue 1482 */
     }
+  }
+
+  private void sendTestConfig(EventScheduler scheduler) {
+    List<String> activeProfiles = activeProfiles();
+    scheduler.sendMessage(
+        createTestConfigMessage("activeProfiles", String.join(",", activeProfiles)));
+
+    scheduler.sendMessage(createTestConfigMessage("jvmArgs", String.join(",", jvmArgs)));
+    scheduler.sendMessage(
+        createTestConfigMessage("overrideJvmArgs", String.valueOf(overrideJvmArgs)));
+    scheduler.sendMessage(
+        createTestConfigMessage(
+            "propagateSystemProperties", String.valueOf(propagateSystemProperties)));
+    scheduler.sendMessage(createTestConfigMessage("simulationClass", simulationClass));
+  }
+
+  private List<String> activeProfiles() {
+    List<String> activeProfiles = new ArrayList<>();
+    for (MavenProject mavenProject : projects) {
+      Map<String, List<String>> activeProfileIds = mavenProject.getInjectedProfileIds();
+      for (Map.Entry<String, List<String>> entry : activeProfileIds.entrySet()) {
+          activeProfiles.addAll(entry.getValue());
+      }
+    }
+    return activeProfiles;
+  }
+
+  private EventMessage createTestConfigMessage(String key, String value) {
+    return EventMessage.builder()
+        .pluginName("events-gatling-maven-plugin")
+        .variable("message-type", "test-run-config")
+        .variable("output", "key")
+        .variable("key", key)
+        .variable("tags", "gatling")
+        .message(value)
+        .build();
   }
 
   private void recordSimulationResults(Exception exception) throws MojoExecutionException {
