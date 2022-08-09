@@ -50,6 +50,17 @@
         </license>
     </licenses>
 
+    <distributionManagement>
+        <repository>
+            <id>sonatype-nexus</id>
+            <url>https://oss.sonatype.org/service/local/staging/deploy/maven2/</url>
+        </repository>
+        <snapshotRepository>
+            <id>sonatype-nexus</id>
+            <url>https://oss.sonatype.org/content/repositories/snapshots</url>
+        </snapshotRepository>
+    </distributionManagement>
+
     <properties>
         <encoding>UTF-8</encoding>
         <maven.compiler.source>1.8</maven.compiler.source>
