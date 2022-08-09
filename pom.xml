@@ -87,7 +87,7 @@
         <zt-zip.version>1.14</zt-zip.version>
 
         <nexus-staging-maven-plugin.version>1.6.13</nexus-staging-maven-plugin.version>
-        <maven-plugin-plugin.version>3.6.2</maven-plugin-plugin.version>
+        <maven-plugin-plugin.version>3.6.4</maven-plugin-plugin.version>
         <maven-jar-plugin.version>3.2.1</maven-jar-plugin.version>
         <maven-gpg-plugin.version>3.0.1</maven-gpg-plugin.version>
         <maven-surefire-plugin.version>2.22.2</maven-surefire-plugin.version>
@@ -154,6 +154,7 @@
                 <version>${maven-plugin-plugin.version}</version>
                 <configuration>
                     <skipErrorNoDescriptorsFound>true</skipErrorNoDescriptorsFound>
+                    <goalPrefix>events-gatling</goalPrefix>
                 </configuration>
                 <executions>
                     <execution>
@@ -205,6 +206,7 @@
                     </execution>
                 </executions>
                 <configuration>
+                    <skip>false</skip>
                     <gpgArguments>
                         <arg>--pinentry-mode</arg>
                         <arg>loopback</arg>
