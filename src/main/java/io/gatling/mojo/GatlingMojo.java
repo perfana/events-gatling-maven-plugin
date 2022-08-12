@@ -41,6 +41,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.*;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.apache.commons.exec.ExecuteException;
 import org.apache.maven.artifact.Artifact;
@@ -63,6 +64,8 @@ import org.codehaus.plexus.util.SelectorUtils;
     requiresDependencyResolution = ResolutionScope.TEST)
 public class GatlingMojo extends AbstractGatlingExecutionMojo {
 
+  public static final String JMV_ARG_PREFIX = "jmvArg.";
+  public static final Pattern CLEAN_OPTION_PATTERN = Pattern.compile("[+-:]");
   private final Object eventSchedulerLock = new Object();
   private EventScheduler eventScheduler;
 
@@ -289,6 +292,7 @@ public class GatlingMojo extends AbstractGatlingExecutionMojo {
             main.join(4000);
           } catch (InterruptedException e) {
             getLog().warn("Interrupt while waiting for abort to finish.");
+            Thread.currentThread().interrupt();
           }
         };
     Thread eventSchedulerShutdownThread = new Thread(shutdowner, "eventSchedulerShutdownThread");
@@ -376,7 +380,9 @@ public class GatlingMojo extends AbstractGatlingExecutionMojo {
     scheduler.sendMessage(
         createTestConfigMessage("activeProfiles", String.join(",", activeProfiles)));
 
-    scheduler.sendMessage(createTestConfigMessage("jvmArgs", String.join(",", jvmArgs)));
+    Map<String, String> lines = createJvmArgsTestConfigLines(jvmArgs);
+    lines.forEach(this::createTestConfigMessage);
+
     scheduler.sendMessage(
         createTestConfigMessage("overrideJvmArgs", String.valueOf(overrideJvmArgs)));
     scheduler.sendMessage(
@@ -385,12 +391,49 @@ public class GatlingMojo extends AbstractGatlingExecutionMojo {
     scheduler.sendMessage(createTestConfigMessage("simulationClass", simulationClass));
   }
 
+  Map<String, String> createJvmArgsTestConfigLines(List<String> jvmArgs) {
+    // merge jvm args with same key, which is a valid situation
+    return jvmArgs.stream()
+            .map(this::jvmArgToKeyValue)
+            .collect(Collectors.toMap(
+                    AbstractMap.SimpleImmutableEntry::getKey,
+                    AbstractMap.SimpleImmutableEntry::getValue,
+                    (left, right) -> String.join(" ", left, right)));
+  }
+
+   private AbstractMap.SimpleImmutableEntry<String, String> jvmArgToKeyValue(String jvmArg) {
+     final String key;
+     if (jvmArg.startsWith("-D")) {
+      String option = jvmArg.contains("=") ? jvmArg.split("=")[0] : jvmArg;
+      key = option.substring(1);
+    } else if (jvmArg.startsWith("-XX:")) {
+        String option = jvmArg.contains("=") ? jvmArg.split("=")[0] : jvmArg;
+        key = CLEAN_OPTION_PATTERN.matcher(option).replaceAll("");
+    } else if (jvmArg.startsWith("-")) {
+      String option = jvmArg.substring(1);
+      if (option.startsWith("Xms") || option.startsWith("Xmx") || option.startsWith("Xss") || option.startsWith("Xssi")) {
+        key = option.substring(0, 3);
+      }
+      else if (jvmArg.contains(":") || jvmArg.contains("=") || jvmArg.contains("/")) {
+        key =  option.split("[:=/]")[0];
+      }
+      else {
+        key = option;
+      }
+    }
+    else {
+      getLog().warn("(test-run-config message) unexpected jvmArg format found: does not start with - (dash) : " + jvmArg);
+      key = jvmArg;
+    }
+     return new AbstractMap.SimpleImmutableEntry<>(JMV_ARG_PREFIX + key, jvmArg);
+  }
+
   private List<String> activeProfiles() {
     List<String> activeProfiles = new ArrayList<>();
     for (MavenProject mavenProject : projects) {
       Map<String, List<String>> activeProfileIds = mavenProject.getInjectedProfileIds();
       for (Map.Entry<String, List<String>> entry : activeProfileIds.entrySet()) {
-          activeProfiles.addAll(entry.getValue());
+        activeProfiles.addAll(entry.getValue());
       }
     }
     return activeProfiles;
