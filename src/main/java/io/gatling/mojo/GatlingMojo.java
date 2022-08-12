@@ -381,7 +381,7 @@ public class GatlingMojo extends AbstractGatlingExecutionMojo {
         createTestConfigMessage("activeProfiles", String.join(",", activeProfiles)));
 
     Map<String, String> lines = createJvmArgsTestConfigLines(jvmArgs);
-    lines.forEach(this::createTestConfigMessage);
+    lines.forEach((key, value) -> scheduler.sendMessage(createTestConfigMessage(key, value)));
 
     scheduler.sendMessage(
         createTestConfigMessage("overrideJvmArgs", String.valueOf(overrideJvmArgs)));
