@@ -66,6 +66,7 @@ public class GatlingMojo extends AbstractGatlingExecutionMojo {
 
   public static final String JMV_ARG_PREFIX = "jmvArg.";
   public static final Pattern CLEAN_OPTION_PATTERN = Pattern.compile("[+-:]");
+  private static final List<String> SECRETS_KEY_PARTS = Arrays.asList("password,token,key".split(","));
   private final Object eventSchedulerLock = new Object();
   private EventScheduler eventScheduler;
 
@@ -395,13 +396,25 @@ public class GatlingMojo extends AbstractGatlingExecutionMojo {
     // merge jvm args with same key, which is a valid situation
     return jvmArgs.stream()
             .map(this::jvmArgToKeyValue)
+            .map(this::replaceSecretValues)
             .collect(Collectors.toMap(
-                    AbstractMap.SimpleImmutableEntry::getKey,
-                    AbstractMap.SimpleImmutableEntry::getValue,
+                    KeyValuePair::getKey,
+                    KeyValuePair::getValue,
                     (left, right) -> String.join(" ", left, right)));
   }
 
-   private AbstractMap.SimpleImmutableEntry<String, String> jvmArgToKeyValue(String jvmArg) {
+  private KeyValuePair replaceSecretValues(KeyValuePair kvp) {
+    String lowerCaseKey = kvp.getKey().toLowerCase();
+    return SECRETS_KEY_PARTS.stream().anyMatch(lowerCaseKey::contains)
+            ? new KeyValuePair(kvp.getKey(), hashSecure(kvp.getValue()))
+            : kvp;
+  }
+
+  private String hashSecure(String value) {
+    return "***";
+  }
+
+  private KeyValuePair jvmArgToKeyValue(String jvmArg) {
      final String key;
      if (jvmArg.startsWith("-D")) {
       String option = jvmArg.contains("=") ? jvmArg.split("=")[0] : jvmArg;
@@ -425,7 +438,26 @@ public class GatlingMojo extends AbstractGatlingExecutionMojo {
       getLog().warn("(test-run-config message) unexpected jvmArg format found: does not start with - (dash) : " + jvmArg);
       key = jvmArg;
     }
-     return new AbstractMap.SimpleImmutableEntry<>(JMV_ARG_PREFIX + key, jvmArg);
+     return new KeyValuePair(JMV_ARG_PREFIX + key, jvmArg);
+  }
+
+  private static class KeyValuePair {
+
+    private final String key;
+    private final String value;
+
+    KeyValuePair(String key, String value) {
+      this.key = key;
+      this.value = value;
+    }
+
+    public String getKey() {
+      return key;
+    }
+
+    public String getValue() {
+      return value;
+    }
   }
 
   private List<String> activeProfiles() {

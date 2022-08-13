@@ -34,6 +34,8 @@ class GatlingMojoTest {
         jvmArgs.add("-XX:OnOutOfMemoryError=/bin/date; /bin/echo custom message;/bin/kill -9 %p");
         jvmArgs.add("-XX:SomeDoubleEqualsProp=/bin/date=123341");
         jvmArgs.add("option=test");
+        jvmArgs.add("-DmyPassword=s3cr3t");
+        jvmArgs.add("-DmyToken=s3cr3t");
 
         Map<String, String> jvmArgsTestConfigLines = new GatlingMojo().createJvmArgsTestConfigLines(jvmArgs);
         //System.out.println(jvmArgsTestConfigLines);
@@ -56,7 +58,9 @@ class GatlingMojoTest {
         // can be d32 or d64, seems good enough to have as full flag (instead of parsing the 32/64 and have d flag)
         assertEquals("-d32", jvmArgsTestConfigLines.get("jmvArg.d32"));
         assertEquals("-XX:SomeDoubleEqualsProp=/bin/date=123341", jvmArgsTestConfigLines.get("jmvArg.XXSomeDoubleEqualsProp"));
-        //
+        // unexpected format
         assertEquals("option=test", jvmArgsTestConfigLines.get("jmvArg.option=test"));
+        assertFalse(jvmArgsTestConfigLines.get("jmvArg.DmyPassword").contains("s3cr3t"), "should not contain s3cr3t");
+        assertFalse(jvmArgsTestConfigLines.get("jmvArg.DmyToken").contains("s3cr3t"), "should not contain s3cr3t");
     }
 }
