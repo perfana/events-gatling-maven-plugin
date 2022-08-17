@@ -39,8 +39,8 @@ class GatlingMojoTest {
 
         Map<String, String> jvmArgsTestConfigLines = new GatlingMojo().createJvmArgsTestConfigLines(jvmArgs);
         //System.out.println(jvmArgsTestConfigLines);
-        // minus one because we expect one merge for Xlog
-        assertEquals(jvmArgs.size() - 1, jvmArgsTestConfigLines.size());
+        // minus one because we expect one merged entry for Xlog, and two secrets filtered out
+        assertEquals(jvmArgs.size() - 3, jvmArgsTestConfigLines.size());
         assertEquals("-Xms1g", jvmArgsTestConfigLines.get("jmvArg.Xms"));
         assertEquals("-Xmx2g", jvmArgsTestConfigLines.get("jmvArg.Xmx"));
         assertEquals("-Xss10k", jvmArgsTestConfigLines.get("jmvArg.Xss"));
@@ -60,7 +60,7 @@ class GatlingMojoTest {
         assertEquals("-XX:SomeDoubleEqualsProp=/bin/date=123341", jvmArgsTestConfigLines.get("jmvArg.XXSomeDoubleEqualsProp"));
         // unexpected format
         assertEquals("option=test", jvmArgsTestConfigLines.get("jmvArg.option=test"));
-        assertFalse(jvmArgsTestConfigLines.get("jmvArg.DmyPassword").contains("s3cr3t"), "should not contain s3cr3t");
-        assertFalse(jvmArgsTestConfigLines.get("jmvArg.DmyToken").contains("s3cr3t"), "should not contain s3cr3t");
+        assertNull(jvmArgsTestConfigLines.get("jmvArg.DmyPassword"), "should not contain s3cr3t");
+        assertNull(jvmArgsTestConfigLines.get("jmvArg.DmyToken"), "should not contain s3cr3t");
     }
 }

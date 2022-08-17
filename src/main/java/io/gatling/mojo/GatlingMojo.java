@@ -396,22 +396,16 @@ public class GatlingMojo extends AbstractGatlingExecutionMojo {
     // merge jvm args with same key, which is a valid situation
     return jvmArgs.stream()
             .map(this::jvmArgToKeyValue)
-            .map(this::replaceSecretValues)
+            .filter(this::isNoSecret)
             .collect(Collectors.toMap(
                     KeyValuePair::getKey,
                     KeyValuePair::getValue,
                     (left, right) -> String.join(" ", left, right)));
   }
 
-  private KeyValuePair replaceSecretValues(KeyValuePair kvp) {
+  private boolean isNoSecret(KeyValuePair kvp) {
     String lowerCaseKey = kvp.getKey().toLowerCase();
-    return SECRETS_KEY_PARTS.stream().anyMatch(lowerCaseKey::contains)
-            ? new KeyValuePair(kvp.getKey(), hashSecure(kvp.getValue()))
-            : kvp;
-  }
-
-  private String hashSecure(String value) {
-    return "***";
+    return SECRETS_KEY_PARTS.stream().noneMatch(lowerCaseKey::contains);
   }
 
   private KeyValuePair jvmArgToKeyValue(String jvmArg) {
