@@ -22,7 +22,9 @@ class GatlingMojoTest {
         jvmArgs.add("-javaagent:/full/path/to/agent.jar");
         jvmArgs.add("-Dthis.is.a.system.property=as-Defined-by-user");
         jvmArgs.add("-Xthr:minimizeUserCPU"); // ibm jvm option
-        jvmArgs.add("-Xbootclasspath/a"); // ibm jvm option
+        jvmArgs.add("-Xbootclasspath/a:/path/to/jar1.jar:/path/to/jar2.jar");
+        jvmArgs.add("-Xbootclasspath/p:/path/to/jar1.jar:/path/to/jar2.jar");
+        jvmArgs.add("-Xbootclasspath:/path/to/jar1.jar:/path/to/jar2.jar");
         jvmArgs.add("-Xnolinenumbers"); // ibm jvm option
         jvmArgs.add("-XX:StartFlightRecording=duration=60s,filename=c:\\temp\\myrecording.jfr");
         // duplicates are possible too: we expect these to be merged
@@ -41,25 +43,27 @@ class GatlingMojoTest {
         //System.out.println(jvmArgsTestConfigLines);
         // minus one because we expect one merged entry for Xlog, and two secrets filtered out
         assertEquals(jvmArgs.size() - 3, jvmArgsTestConfigLines.size());
-        assertEquals("-Xms1g", jvmArgsTestConfigLines.get("jmvArg.Xms"));
-        assertEquals("-Xmx2g", jvmArgsTestConfigLines.get("jmvArg.Xmx"));
-        assertEquals("-Xss10k", jvmArgsTestConfigLines.get("jmvArg.Xss"));
-        assertEquals("-XX:-UseSerialGC", jvmArgsTestConfigLines.get("jmvArg.XXUseSerialGC"));
-        assertEquals("-XX:PreBlockSpin=10", jvmArgsTestConfigLines.get("jmvArg.XXPreBlockSpin"));
-        assertEquals("-XX:HeapDumpPath=./java_pid1234.hprof", jvmArgsTestConfigLines.get("jmvArg.XXHeapDumpPath"));
-        assertEquals("-javaagent:/full/path/to/agent.jar", jvmArgsTestConfigLines.get("jmvArg.javaagent"));
-        assertEquals("-Dthis.is.a.system.property=as-Defined-by-user", jvmArgsTestConfigLines.get("jmvArg.Dthis.is.a.system.property"));
-        assertEquals("-Xthr:minimizeUserCPU", jvmArgsTestConfigLines.get("jmvArg.Xthr"));
-        assertEquals("-Xbootclasspath/a", jvmArgsTestConfigLines.get("jmvArg.Xbootclasspath"));
-        assertEquals("-Xnolinenumbers", jvmArgsTestConfigLines.get("jmvArg.Xnolinenumbers"));
-        assertEquals("-XX:StartFlightRecording=duration=60s,filename=c:\\temp\\myrecording.jfr", jvmArgsTestConfigLines.get("jmvArg.XXStartFlightRecording"));
-        assertEquals("-Xlog:gc*=debug:stdout -Xlog:gc*=debug:file=/tmp/gc.log", jvmArgsTestConfigLines.get("jmvArg.Xlog"));
-        assertEquals("-Xloggc:/home/user/log/gc.log", jvmArgsTestConfigLines.get("jmvArg.Xloggc"));
-        // can be d32 or d64, seems good enough to have as full flag (instead of parsing the 32/64 and have d flag)
-        assertEquals("-d32", jvmArgsTestConfigLines.get("jmvArg.d32"));
-        assertEquals("-XX:SomeDoubleEqualsProp=/bin/date=123341", jvmArgsTestConfigLines.get("jmvArg.XXSomeDoubleEqualsProp"));
+        assertEquals("1g", jvmArgsTestConfigLines.get("jmvArg.Xms"));
+        assertEquals("2g", jvmArgsTestConfigLines.get("jmvArg.Xmx"));
+        assertEquals("10k", jvmArgsTestConfigLines.get("jmvArg.Xss"));
+        assertEquals("-UseSerialGC", jvmArgsTestConfigLines.get("jmvArg.XXUseSerialGC"));
+        assertEquals("10", jvmArgsTestConfigLines.get("jmvArg.XXPreBlockSpin"));
+        assertEquals("./java_pid1234.hprof", jvmArgsTestConfigLines.get("jmvArg.XXHeapDumpPath"));
+        assertEquals("/full/path/to/agent.jar", jvmArgsTestConfigLines.get("jmvArg.javaagent"));
+        assertEquals("as-Defined-by-user", jvmArgsTestConfigLines.get("jmvArg.Dthis.is.a.system.property"));
+        assertEquals("minimizeUserCPU", jvmArgsTestConfigLines.get("jmvArg.Xthr"));
+        assertEquals("/path/to/jar1.jar:/path/to/jar2.jar", jvmArgsTestConfigLines.get("jmvArg.Xbootclasspatha"));
+        assertEquals("/path/to/jar1.jar:/path/to/jar2.jar", jvmArgsTestConfigLines.get("jmvArg.Xbootclasspathp"));
+        assertEquals("/path/to/jar1.jar:/path/to/jar2.jar", jvmArgsTestConfigLines.get("jmvArg.Xbootclasspath"));
+        assertEquals("nolinenumbers", jvmArgsTestConfigLines.get("jmvArg.Xnolinenumbers"));
+        assertEquals("duration=60s,filename=c:\\temp\\myrecording.jfr", jvmArgsTestConfigLines.get("jmvArg.XXStartFlightRecording"));
+        // expect two -Xlog entries, concatenated by newline
+        assertEquals("gc*=debug:stdout\ngc*=debug:file=/tmp/gc.log", jvmArgsTestConfigLines.get("jmvArg.Xlog"));
+        assertEquals("/home/user/log/gc.log", jvmArgsTestConfigLines.get("jmvArg.Xloggc"));
+        assertEquals("32", jvmArgsTestConfigLines.get("jmvArg.d"));
+        assertEquals("/bin/date=123341", jvmArgsTestConfigLines.get("jmvArg.XXSomeDoubleEqualsProp"));
         // unexpected format
-        assertEquals("option=test", jvmArgsTestConfigLines.get("jmvArg.option=test"));
+        assertEquals("test", jvmArgsTestConfigLines.get("jmvArg.option"));
         assertNull(jvmArgsTestConfigLines.get("jmvArg.DmyPassword"), "should not contain s3cr3t");
         assertNull(jvmArgsTestConfigLines.get("jmvArg.DmyToken"), "should not contain s3cr3t");
     }

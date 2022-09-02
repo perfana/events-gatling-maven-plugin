@@ -393,14 +393,14 @@ public class GatlingMojo extends AbstractGatlingExecutionMojo {
   }
 
   Map<String, String> createJvmArgsTestConfigLines(List<String> jvmArgs) {
-    // merge jvm args with same key, which is a valid situation
+    // merge jvm args with same key by newline
     return jvmArgs.stream()
             .map(this::jvmArgToKeyValue)
             .filter(this::isNoSecret)
             .collect(Collectors.toMap(
                     KeyValuePair::getKey,
                     KeyValuePair::getValue,
-                    (left, right) -> String.join(" ", left, right)));
+                    (left, right) -> String.join("\n", left, right)));
   }
 
   private boolean isNoSecret(KeyValuePair kvp) {
@@ -409,30 +409,60 @@ public class GatlingMojo extends AbstractGatlingExecutionMojo {
   }
 
   private KeyValuePair jvmArgToKeyValue(String jvmArg) {
-     final String key;
-     if (jvmArg.startsWith("-D")) {
-      String option = jvmArg.contains("=") ? jvmArg.split("=")[0] : jvmArg;
-      key = option.substring(1);
+    final String key;
+    final String value;
+
+    String[] splitJvmArg = splitOnFirstOccurrence(jvmArg, "=");
+    String jvmArgPart1 = splitJvmArg[0];
+    String jvmArgPart2 = splitJvmArg.length == 2 ? splitJvmArg[1] : "";
+
+    if (jvmArg.startsWith("-D")) {
+        key = jvmArgPart1.substring(1);
+        value = jvmArgPart2;
     } else if (jvmArg.startsWith("-XX:")) {
-        String option = jvmArg.contains("=") ? jvmArg.split("=")[0] : jvmArg;
-        key = CLEAN_OPTION_PATTERN.matcher(option).replaceAll("");
+        key = CLEAN_OPTION_PATTERN.matcher(jvmArgPart1).replaceAll("");
+        value = jvmArgPart2.length() == 0 ? jvmArgPart1.substring(4) : jvmArgPart2;
     } else if (jvmArg.startsWith("-")) {
       String option = jvmArg.substring(1);
-      if (option.startsWith("Xms") || option.startsWith("Xmx") || option.startsWith("Xss") || option.startsWith("Xssi")) {
-        key = option.substring(0, 3);
+      // -d32 and -d64 are possible, hard to parse generically
+      if (jvmArg.equals("-d32")) {
+        key = "d";
+        value = "32";
       }
-      else if (jvmArg.contains(":") || jvmArg.contains("=") || jvmArg.contains("/")) {
-        key =  option.split("[:=/]")[0];
+      else if (jvmArg.equals("-d64")) {
+        key = "d";
+        value = "64";
+      }
+      else if (option.startsWith("Xms") || option.startsWith("Xmx") || option.startsWith("Xss") || option.startsWith("Xssi")) {
+        key = option.substring(0, 3);
+        value = option.substring(3);
+      }
+      else if (jvmArg.contains(":") || jvmArg.contains("=")) {
+        // limit = 2: only split on first occurrence
+        String[] split = splitOnFirstOccurrence(jvmArg, "[:=]");
+        key =  CLEAN_OPTION_PATTERN.matcher(split[0].substring(1)).replaceAll("");
+        value = split.length == 2 ? split[1] : split[0].substring(2);
       }
       else {
         key = option;
+        if (jvmArgPart2.length() == 0) {
+          value = option.startsWith("X") ? option.substring(1) : option;
+        }
+        else {
+          value = jvmArgPart2;
+        }
       }
     }
     else {
       getLog().warn("(test-run-config message) unexpected jvmArg format found: does not start with - (dash) : " + jvmArg);
-      key = jvmArg;
+      key = jvmArgPart1;
+      value = jvmArgPart2;
     }
-     return new KeyValuePair(JMV_ARG_PREFIX + key, jvmArg);
+     return new KeyValuePair(JMV_ARG_PREFIX + key, value);
+  }
+
+  private static String[] splitOnFirstOccurrence(String text, String regex) {
+    return text.split(regex, 2);
   }
 
   private static class KeyValuePair {
