@@ -41,7 +41,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.*;
-import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 import io.perfana.eventscheduler.util.JavaArgsParser;
@@ -377,8 +376,9 @@ public class GatlingMojo extends AbstractGatlingExecutionMojo {
 
   private void sendTestConfig(EventScheduler scheduler) {
     List<String> activeProfiles = activeProfiles();
+    Collections.sort(activeProfiles);
     scheduler.sendMessage(
-        createTestConfigMessage("activeProfiles", String.join(",", activeProfiles)));
+        createTestConfigMessage("activeProfiles", String.join("\n", activeProfiles)));
 
     Map<String, String> lines = JavaArgsParser.createJvmArgsTestConfigLines(jvmArgs);
     lines.forEach((key, value) -> scheduler.sendMessage(createTestConfigMessage(key, value)));
