@@ -44,6 +44,7 @@ import java.util.*;
 import java.util.stream.Collectors;
 
 import io.perfana.eventscheduler.util.JavaArgsParser;
+import io.perfana.eventscheduler.util.TestRunConfigUtil;
 import org.apache.commons.exec.ExecuteException;
 import org.apache.maven.artifact.Artifact;
 import org.apache.maven.artifact.DependencyResolutionRequiredException;
@@ -375,20 +376,19 @@ public class GatlingMojo extends AbstractGatlingExecutionMojo {
   }
 
   private void sendTestConfig(EventScheduler scheduler) {
+    Map<String, String> keyValues = JavaArgsParser.createJvmArgsTestConfigLines(jvmArgs);
+
     List<String> activeProfiles = activeProfiles();
     Collections.sort(activeProfiles);
-    scheduler.sendMessage(
-        createTestConfigMessage("activeProfiles", String.join("\n", activeProfiles)));
+    keyValues.put("activeProfiles", String.join("\n", activeProfiles));
 
-    Map<String, String> lines = JavaArgsParser.createJvmArgsTestConfigLines(jvmArgs);
-    lines.forEach((key, value) -> scheduler.sendMessage(createTestConfigMessage(key, value)));
+    keyValues.put("overrideJvmArgs", String.valueOf(overrideJvmArgs));
+    keyValues.put("propagateSystemProperties", String.valueOf(propagateSystemProperties));
+    keyValues.put("simulationClass", simulationClass);
 
-    scheduler.sendMessage(
-        createTestConfigMessage("overrideJvmArgs", String.valueOf(overrideJvmArgs)));
-    scheduler.sendMessage(
-        createTestConfigMessage(
-            "propagateSystemProperties", String.valueOf(propagateSystemProperties)));
-    scheduler.sendMessage(createTestConfigMessage("simulationClass", simulationClass));
+    EventMessage message = TestRunConfigUtil.createTestRunConfigMessageKeys("events-gatling-maven-plugin", keyValues, "gatling");
+
+    scheduler.sendMessage(message);
   }
 
   private List<String> activeProfiles() {
