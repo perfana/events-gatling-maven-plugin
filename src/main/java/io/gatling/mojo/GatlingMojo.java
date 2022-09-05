@@ -380,7 +380,7 @@ public class GatlingMojo extends AbstractGatlingExecutionMojo {
 
     List<String> activeProfiles = activeProfiles();
     Collections.sort(activeProfiles);
-    keyValues.put("activeProfiles", String.join("\n", activeProfiles));
+    keyValues.put("activeProfiles", String.join(TestRunConfigUtil.VALUE_LIST_DELIMITER, activeProfiles));
 
     keyValues.put("overrideJvmArgs", String.valueOf(overrideJvmArgs));
     keyValues.put("propagateSystemProperties", String.valueOf(propagateSystemProperties));
