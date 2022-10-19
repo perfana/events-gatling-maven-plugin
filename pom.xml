@@ -9,7 +9,7 @@
 
     <groupId>io.perfana</groupId>
     <artifactId>events-gatling-maven-plugin</artifactId>
-    <version>4.1.0-events-4-SNAPSHOT</version>
+    <version>4.1.0-events-4</version>
     <name>events-gatling-maven-plugin</name>
     <description>Forked from gatling-maven-plugin, this version adds event-scheduler integration.</description>
     <packaging>maven-plugin</packaging>
