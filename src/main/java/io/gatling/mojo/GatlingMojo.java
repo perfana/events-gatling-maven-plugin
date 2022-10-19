@@ -30,6 +30,8 @@ import io.perfana.eventscheduler.api.config.EventSchedulerConfig;
 import io.perfana.eventscheduler.api.message.EventMessage;
 import io.perfana.eventscheduler.exception.EventCheckFailureException;
 import io.perfana.eventscheduler.exception.handler.KillSwitchException;
+import io.perfana.eventscheduler.util.JavaArgsParser;
+import io.perfana.eventscheduler.util.TestRunConfigUtil;
 import java.io.BufferedWriter;
 import java.io.File;
 import java.io.IOException;
@@ -42,9 +44,6 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.*;
 import java.util.stream.Collectors;
-
-import io.perfana.eventscheduler.util.JavaArgsParser;
-import io.perfana.eventscheduler.util.TestRunConfigUtil;
 import org.apache.commons.exec.ExecuteException;
 import org.apache.maven.artifact.Artifact;
 import org.apache.maven.artifact.DependencyResolutionRequiredException;
@@ -380,13 +379,16 @@ public class GatlingMojo extends AbstractGatlingExecutionMojo {
 
     List<String> activeProfiles = activeProfiles();
     Collections.sort(activeProfiles);
-    keyValues.put("activeProfiles", String.join(TestRunConfigUtil.VALUE_LIST_DELIMITER, activeProfiles));
+    keyValues.put(
+        "activeProfiles", String.join(TestRunConfigUtil.VALUE_LIST_DELIMITER, activeProfiles));
 
     keyValues.put("overrideJvmArgs", String.valueOf(overrideJvmArgs));
     keyValues.put("propagateSystemProperties", String.valueOf(propagateSystemProperties));
     keyValues.put("simulationClass", simulationClass);
 
-    EventMessage message = TestRunConfigUtil.createTestRunConfigMessageKeys("events-gatling-maven-plugin", keyValues, "gatling");
+    EventMessage message =
+        TestRunConfigUtil.createTestRunConfigMessageKeys(
+            "events-gatling-maven-plugin", keyValues, "gatling");
 
     scheduler.sendMessage(message);
   }

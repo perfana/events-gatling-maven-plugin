@@ -70,6 +70,13 @@ class Fork {
           schedulerExceptionType = SchedulerExceptionType.ABORT;
           gatlingProcessWatchDog.destroyProcess();
         }
+
+        @Override
+        public void stop(String message) {
+          log.info("Stop running process, message: " + message);
+          schedulerExceptionType = SchedulerExceptionType.STOP;
+          gatlingProcessWatchDog.destroyProcess();
+        }
       };
 
   private final List<String> jvmArgs = new ArrayList<>();
