@@ -192,6 +192,23 @@ public class GatlingMojo extends AbstractGatlingExecutionMojo {
 
       List<String> jvmArgs = gatlingJvmArgs();
 
+      String testRunId = eventSchedulerConfig.getTestConfig().toContext().getTestRunId();
+      Optional<String> existingTestRunId = jvmArgs.stream().filter(jvmArg -> jvmArg.startsWith("-DtestRunId")).findAny();
+      if (existingTestRunId.isPresent()) {
+        getLog().info(">>> testRunId is present: " + existingTestRunId.get());
+        if (isEventSchedulerEnabled) {
+          String newTestRunId = "-DtestRunId=" + testRunId;
+          if (!existingTestRunId.get().equals(newTestRunId)) {
+            jvmArgs.remove(existingTestRunId.get());
+            getLog().info(">>> replace or inject -DtestRunId in jvm args: " + testRunId);
+            jvmArgs.add(newTestRunId);
+          }
+        }
+        else {
+          getLog().info(">>> testRunId is present but event scheduler is disabled: " + existingTestRunId.get());
+        }
+      }
+
       if (reportsOnly != null) {
         executeGatling(jvmArgs, gatlingArgs(null), testClasspath, toolchain);
 
