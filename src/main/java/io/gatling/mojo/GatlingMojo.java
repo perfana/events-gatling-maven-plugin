@@ -192,21 +192,8 @@ public class GatlingMojo extends AbstractGatlingExecutionMojo {
 
       List<String> jvmArgs = gatlingJvmArgs();
 
-      String testRunId = eventSchedulerConfig.getTestConfig().toContext().getTestRunId();
-      Optional<String> existingTestRunId = jvmArgs.stream().filter(jvmArg -> jvmArg.startsWith("-DtestRunId")).findAny();
-      if (existingTestRunId.isPresent()) {
-        getLog().info(">>> testRunId is present: " + existingTestRunId.get());
-        if (isEventSchedulerEnabled) {
-          String newTestRunId = "-DtestRunId=" + testRunId;
-          if (!existingTestRunId.get().equals(newTestRunId)) {
-            jvmArgs.remove(existingTestRunId.get());
-            getLog().info(">>> replace or inject -DtestRunId in jvm args: " + testRunId);
-            jvmArgs.add(newTestRunId);
-          }
-        }
-        else {
-          getLog().info(">>> testRunId is present but event scheduler is disabled: " + existingTestRunId.get());
-        }
+      if (isEventSchedulerEnabled) {
+        replaceTestRunIdInJvmArgs(jvmArgs);
       }
 
       if (reportsOnly != null) {
@@ -283,6 +270,23 @@ public class GatlingMojo extends AbstractGatlingExecutionMojo {
         }
       }
     }
+  }
+
+  private void replaceTestRunIdInJvmArgs(List<String> jvmArgs) {
+    String testRunId = eventSchedulerConfig.getTestConfig().toContext().getTestRunId();
+    Optional<String> existingTestRunId = jvmArgs.stream().filter(jvmArg -> jvmArg.startsWith("-DtestRunId")).findAny();
+    String newTestRunIdJvmArg = "-DtestRunId=" + testRunId;
+    if (existingTestRunId.isPresent()) {
+      getLog().info(">>> testRunId is present in jvm args: " + existingTestRunId.get());
+      if (!existingTestRunId.get().equals(newTestRunIdJvmArg)) {
+        getLog().info(">>> replace testRunId in jvm args: " + newTestRunIdJvmArg);
+        jvmArgs.remove(existingTestRunId.get());
+      }
+    }
+    else {
+      getLog().info(">>> inject testRunId in jvm args:: " + newTestRunIdJvmArg);
+    }
+    jvmArgs.add(newTestRunIdJvmArg);
   }
 
   private void startScheduler(EventScheduler scheduler, SchedulerExceptionHandler handler) {
