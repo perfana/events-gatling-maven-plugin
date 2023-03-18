@@ -280,13 +280,13 @@ public class GatlingMojo extends AbstractGatlingExecutionMojo {
       getLog().info(">>> testRunId is present in jvm args: " + existingTestRunId.get());
       if (!existingTestRunId.get().equals(newTestRunIdJvmArg)) {
         getLog().info(">>> replace testRunId in jvm args: " + newTestRunIdJvmArg);
-        jvmArgs.remove(existingTestRunId.get());
+        jvmArgs.set(jvmArgs.indexOf(existingTestRunId.get()), newTestRunIdJvmArg);
       }
     }
     else {
       getLog().info(">>> inject testRunId in jvm args:: " + newTestRunIdJvmArg);
+      jvmArgs.add(newTestRunIdJvmArg);
     }
-    jvmArgs.add(newTestRunIdJvmArg);
   }
 
   private void startScheduler(EventScheduler scheduler, SchedulerExceptionHandler handler) {
