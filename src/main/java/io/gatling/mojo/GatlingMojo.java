@@ -177,6 +177,8 @@ public class GatlingMojo extends AbstractGatlingExecutionMojo {
     eventScheduler =
         isEventSchedulerEnabled ? createEventScheduler(eventSchedulerConfig, getLog()) : null;
 
+    String newTestRunId = eventScheduler.getEventSchedulerContext().getTestContext().getTestRunId();
+
     // Create results directories
     if (!resultsFolder.exists() && !resultsFolder.mkdirs()) {
       throw new MojoExecutionException(
@@ -193,7 +195,7 @@ public class GatlingMojo extends AbstractGatlingExecutionMojo {
       List<String> jvmArgs = gatlingJvmArgs();
 
       if (isEventSchedulerEnabled) {
-        replaceTestRunIdInJvmArgs(jvmArgs);
+        replaceTestRunIdInJvmArgs(jvmArgs, newTestRunId);
       }
 
       if (reportsOnly != null) {
@@ -272,10 +274,12 @@ public class GatlingMojo extends AbstractGatlingExecutionMojo {
     }
   }
 
-  private void replaceTestRunIdInJvmArgs(List<String> jvmArgs) {
-    String testRunId = eventSchedulerConfig.getTestConfig().toContext().getTestRunId();
+  private void replaceTestRunIdInJvmArgs(List<String> jvmArgs, String newTestRunId) {
+    getLog().debug(">>> testRunId from the eventScheduler: " + newTestRunId);
+    String newTestRunIdJvmArg = "-DtestRunId=" + newTestRunId;
+
     Optional<String> existingTestRunId = jvmArgs.stream().filter(jvmArg -> jvmArg.startsWith("-DtestRunId")).findAny();
-    String newTestRunIdJvmArg = "-DtestRunId=" + testRunId;
+
     if (existingTestRunId.isPresent()) {
       getLog().info(">>> testRunId is present in jvm args: " + existingTestRunId.get());
       if (!existingTestRunId.get().equals(newTestRunIdJvmArg)) {
