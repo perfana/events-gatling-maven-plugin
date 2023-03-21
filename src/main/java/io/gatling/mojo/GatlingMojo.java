@@ -177,8 +177,6 @@ public class GatlingMojo extends AbstractGatlingExecutionMojo {
     eventScheduler =
         isEventSchedulerEnabled ? createEventScheduler(eventSchedulerConfig, getLog()) : null;
 
-    String newTestRunId = eventScheduler.getEventSchedulerContext().getTestContext().getTestRunId();
-
     // Create results directories
     if (!resultsFolder.exists() && !resultsFolder.mkdirs()) {
       throw new MojoExecutionException(
@@ -195,6 +193,7 @@ public class GatlingMojo extends AbstractGatlingExecutionMojo {
       List<String> jvmArgs = gatlingJvmArgs();
 
       if (isEventSchedulerEnabled) {
+        String newTestRunId = eventScheduler.getEventSchedulerContext().getTestContext().getTestRunId();
         replaceTestRunIdInJvmArgs(jvmArgs, newTestRunId);
       }
 
@@ -384,7 +383,7 @@ public class GatlingMojo extends AbstractGatlingExecutionMojo {
 
     if (isEventSchedulerEnabled) {
       SchedulerExceptionHandler exceptionHandler = forkedGatling.getSchedulerExceptionHandler();
-      sendTestConfig(eventScheduler);
+      sendTestConfig(eventScheduler, gatlingJvmArgs);
       startScheduler(eventScheduler, exceptionHandler);
     } else {
       getLog()
@@ -399,8 +398,8 @@ public class GatlingMojo extends AbstractGatlingExecutionMojo {
     }
   }
 
-  private void sendTestConfig(EventScheduler scheduler) {
-    Map<String, String> keyValues = JavaArgsParser.createJvmArgsTestConfigLines(jvmArgs);
+  private void sendTestConfig(EventScheduler scheduler, List<String> gatlingJvmArgs) {
+    Map<String, String> keyValues = JavaArgsParser.createJvmArgsTestConfigLines(gatlingJvmArgs);
 
     List<String> activeProfiles = activeProfiles();
     Collections.sort(activeProfiles);
