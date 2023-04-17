@@ -16,12 +16,9 @@
  */
 package io.gatling.mojo;
 
-import io.gatling.plugin.EnterprisePlugin;
-import io.gatling.plugin.EnterprisePluginClient;
-import io.gatling.plugin.InteractiveEnterprisePlugin;
-import io.gatling.plugin.InteractiveEnterprisePluginClient;
+import io.gatling.plugin.*;
 import io.gatling.plugin.client.EnterpriseClient;
-import io.gatling.plugin.client.http.OkHttpEnterpriseClient;
+import io.gatling.plugin.client.http.HttpEnterpriseClient;
 import io.gatling.plugin.exceptions.UnsupportedClientException;
 import io.gatling.plugin.io.JavaPluginScanner;
 import io.gatling.plugin.io.PluginIO;
@@ -30,7 +27,6 @@ import io.gatling.plugin.io.PluginScanner;
 import java.net.URL;
 import java.util.Scanner;
 import org.apache.maven.plugin.MojoFailureException;
-import org.apache.maven.plugin.logging.Log;
 import org.apache.maven.plugins.annotations.Parameter;
 
 public abstract class AbstractEnterprisePluginMojo extends AbstractEnterpriseMojo {
@@ -51,17 +47,16 @@ public abstract class AbstractEnterprisePluginMojo extends AbstractEnterpriseMoj
       property = "gatling.enterprise.apiToken")
   protected String apiToken;
 
-  private final Log logger = getLog();
   private final PluginLogger pluginLogger =
       new PluginLogger() {
         @Override
         public void info(String message) {
-          logger.info(message);
+          getLog().info(message);
         }
 
         @Override
         public void error(String message) {
-          logger.error(message);
+          getLog().error(message);
         }
       };
 
@@ -81,15 +76,13 @@ public abstract class AbstractEnterprisePluginMojo extends AbstractEnterpriseMoj
         }
       };
 
-  protected EnterprisePlugin initEnterprisePlugin() throws MojoFailureException {
-    EnterpriseClient enterpriseClient = initEnterpriseClient();
-    return new EnterprisePluginClient(enterpriseClient, pluginLogger);
+  protected BatchEnterprisePlugin initBatchEnterprisePlugin() throws MojoFailureException {
+    return new BatchEnterprisePluginClient(initEnterpriseClient(), pluginLogger);
   }
 
   protected InteractiveEnterprisePlugin initInteractiveEnterprisePlugin()
       throws MojoFailureException {
-    EnterpriseClient enterpriseClient = initEnterpriseClient();
-    return new InteractiveEnterprisePluginClient(enterpriseClient, pluginIO);
+    return new InteractiveEnterprisePluginClient(initEnterpriseClient(), pluginIO);
   }
 
   private EnterpriseClient initEnterpriseClient() throws MojoFailureException {
@@ -113,8 +106,7 @@ public abstract class AbstractEnterprisePluginMojo extends AbstractEnterpriseMoj
     }
 
     try {
-      final URL apiUrl = new URL(enterpriseUrl, "api/public");
-      return OkHttpEnterpriseClient.getInstance(apiUrl, apiToken, pluginTitle, pluginVersion);
+      return new HttpEnterpriseClient(enterpriseUrl, apiToken, pluginTitle, pluginVersion);
     } catch (UnsupportedClientException e) {
       throw new MojoFailureException(
           "Please update the Gatling Maven plugin to the latest version for compatibility with Gatling Enterprise. See https://gatling.io/docs/gatling/reference/current/extensions/maven_plugin/ for more information about this plugin.",

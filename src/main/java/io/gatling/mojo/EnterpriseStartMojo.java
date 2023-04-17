@@ -16,21 +16,16 @@
  */
 package io.gatling.mojo;
 
-import io.gatling.plugin.EmptyChoicesException;
 import io.gatling.plugin.EnterprisePlugin;
-import io.gatling.plugin.InteractiveEnterprisePlugin;
 import io.gatling.plugin.exceptions.EnterprisePluginException;
-import io.gatling.plugin.exceptions.SeveralTeamsFoundException;
-import io.gatling.plugin.exceptions.SimulationStartException;
 import io.gatling.plugin.model.RunSummary;
-import io.gatling.plugin.model.Simulation;
+import io.gatling.plugin.model.SimulationEndResult;
 import io.gatling.plugin.model.SimulationStartResult;
+import io.gatling.plugin.util.PropertiesParserUtil;
 import java.io.File;
 import java.util.Collections;
-import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import java.util.stream.Collectors;
 import org.apache.maven.plugin.MojoExecutionException;
 import org.apache.maven.plugin.MojoFailureException;
 import org.apache.maven.plugins.annotations.Execute;
@@ -52,7 +47,7 @@ import org.apache.maven.plugins.annotations.ResolutionScope;
  */
 @Execute(goal = "enterprisePackage")
 @Mojo(name = "enterpriseStart", requiresDependencyResolution = ResolutionScope.TEST)
-public class EnterpriseStartMojo extends AbstractEnterprisePluginMojo {
+public final class EnterpriseStartMojo extends AbstractEnterprisePluginMojo {
 
   /**
    * List of exclude patterns to use when scanning for simulation classes. Excludes none by default.
@@ -85,11 +80,43 @@ public class EnterpriseStartMojo extends AbstractEnterprisePluginMojo {
 
   /**
    * Provides system properties when starting a simulation, in addition to the ones which may
-   * already be configured for that simulation (see
-   * https://gatling.io/docs/enterprise/cloud/reference/user/simulations/#step-4--5-jvm-options--java-system-properties).
+   * already be defined for that simulation (see
+   * https://gatling.io/docs/enterprise/cloud/reference/user/simulations/#step-3-injector-parameters).
+   * To provide system properties on the command line, use the format
+   * -Dgatling.enterprise.simulationSystemProperties=key1=value1,key2=value2
+   */
+  @Parameter private Map<String, String> simulationSystemProperties;
+
+  /**
+   * Alternative to simulationSystemProperties. Use the following format: key1=value1,key2=value2
+   * This is meant to be used on the command line, rather than in the pom.xml.
    */
   @Parameter(property = "gatling.enterprise.simulationSystemProperties")
-  private Map<String, String> simulationSystemProperties;
+  private String simulationSystemPropertiesString;
+
+  /**
+   * Provides additional environment variables when starting a simulation, in addition to the ones
+   * which may already be defined for that simulation (see
+   * https://gatling.io/docs/enterprise/cloud/reference/user/simulations/#step-3-injector-parameters).
+   * To provide environment variables on the command line, use the format use
+   * -Dgatling.enterprise.simulationEnvironmentVariables=key1=value1,key2=value2
+   */
+  @Parameter private Map<String, String> simulationEnvironmentVariables;
+
+  /**
+   * Alternative to simulationEnvironmentVariables. Use the following format:
+   * key1=value1,key2=value2 This is meant to be used on the command line, rather than in the
+   * pom.xml.
+   */
+  @Parameter(property = "gatling.enterprise.simulationEnvironmentVariables")
+  private String simulationEnvironmentVariablesString;
+
+  /**
+   * Wait for the result after starting the simulation on Gatling Enterprise, and complete with an
+   * error if the simulation ends with any error status.
+   */
+  @Parameter(property = "gatling.enterprise.waitForRunEnd", defaultValue = "false")
+  private boolean waitForRunEnd;
 
   @Override
   public void execute() throws MojoExecutionException, MojoFailureException {
@@ -103,103 +130,62 @@ public class EnterpriseStartMojo extends AbstractEnterprisePluginMojo {
     }
     final File file = shadedArtifactFile();
 
-    try {
-      final RunSummary runSummary;
-      if (simulationId != null) {
-        runSummary = startExistingSimulation(file);
-      } else if (session.getRequest().isInteractiveMode()) {
-        runSummary = interactiveCreateAndStartSimulation(file, teamIdUuid, packageIdUuid);
-      } else {
-        runSummary = batchCreateAndStartSimulation(file, teamIdUuid, packageIdUuid);
-      }
-      getLog().info(CommonLogMessage.simulationStartSuccess(enterpriseUrl, runSummary.reportsPath));
-    } catch (SimulationStartException e) {
-      final Simulation simulation = e.getSimulation();
-      final String msg =
-          "Failed to start simulation.\n"
-              + String.format(
-                  "Simulation %s with ID %s exists but could not be started: ",
-                  simulation.name, simulation.id)
-              + e.getCause().getMessage()
-              + "\n"
-              + CommonLogMessage.simulationStartSample(simulation);
-      throw new MojoFailureException(msg, e);
-    } catch (EnterprisePluginException e) {
-      throw new MojoFailureException(e.getMessage(), e);
+    final EnterprisePlugin plugin = initEnterprisePlugin(session.getRequest().isInteractiveMode());
+
+    final SimulationStartResult startResult =
+        RecoverEnterprisePluginException.handle(
+            () ->
+                simulationId == null
+                    ? createAndStartSimulation(plugin, file, teamIdUuid, packageIdUuid)
+                    : startExistingSimulation(plugin, file),
+            getLog());
+
+    getLog()
+        .info(
+            CommonLogMessage.simulationStartSuccess(
+                enterpriseUrl, startResult.runSummary.reportsPath));
+
+    if (simulationId == null || !waitForRunEnd) {
+      getLog()
+          .info(
+              CommonLogMessage.simulationConfiguration(
+                  startResult.simulation, simulationId, waitForRunEnd));
     }
+
+    waitForRunEnd(plugin, startResult.runSummary);
   }
 
-  private RunSummary startExistingSimulation(File file) throws MojoFailureException {
+  private EnterprisePlugin initEnterprisePlugin(boolean isInteractive) throws MojoFailureException {
+    return isInteractive ? initInteractiveEnterprisePlugin() : initBatchEnterprisePlugin();
+  }
+
+  private SimulationStartResult startExistingSimulation(
+      EnterprisePlugin enterprisePlugin, File file) throws EnterprisePluginException {
     getLog().info("Uploading and starting simulation...");
-    final EnterprisePlugin enterprisePlugin = initEnterprisePlugin();
-    try {
-      return enterprisePlugin.uploadPackageAndStartSimulation(
-              UUID.fromString(simulationId), simulationSystemProperties, file)
-          .runSummary;
-    } catch (EnterprisePluginException e) {
-      throw new MojoFailureException(e.getMessage(), e);
-    }
+    return enterprisePlugin.uploadPackageAndStartSimulation(
+        UUID.fromString(simulationId),
+        selectProperties(simulationSystemProperties, simulationSystemPropertiesString),
+        selectProperties(simulationEnvironmentVariables, simulationEnvironmentVariablesString),
+        simulationClass,
+        file);
   }
 
-  private RunSummary batchCreateAndStartSimulation(File file, UUID teamIdUuid, UUID packageIdUuid)
-      throws EnterprisePluginException, MojoFailureException {
-    getLog().info("Creating and starting simulation (batch mode)...");
-
-    final EnterprisePlugin enterprisePlugin = initEnterprisePlugin();
-    final SimulationStartResult result;
-    try {
-      result =
-          enterprisePlugin.createAndStartSimulation(
-              teamIdUuid,
-              mavenProject.getGroupId(),
-              mavenProject.getArtifactId(),
-              simulationClass(),
-              packageIdUuid,
-              simulationSystemProperties,
-              file);
-    } catch (SeveralTeamsFoundException e) {
-      final String availableTeams =
-          e.getAvailableTeams().stream()
-              .map(t -> String.format("- %s (%s)\n", t.id, t.name))
-              .collect(Collectors.joining());
-      final String teamExample = e.getAvailableTeams().get(0).id.toString();
-      final String msg =
-          "Several teams were found to create a simulation.\n"
-              + "Available teams:\n"
-              + availableTeams
-              + CommonLogMessage.missingConfiguration(
-                  "team", "teamId", "gatling.enterprise.teamId", null, teamExample);
-      throw new MojoFailureException(msg);
-    }
+  private SimulationStartResult createAndStartSimulation(
+      EnterprisePlugin enterprisePlugin, File file, UUID teamIdUuid, UUID packageIdUuid)
+      throws EnterprisePluginException {
+    final SimulationStartResult result =
+        enterprisePlugin.createAndStartSimulation(
+            teamIdUuid,
+            mavenProject.getGroupId(),
+            mavenProject.getArtifactId(),
+            simulationClass,
+            packageIdUuid,
+            selectProperties(simulationSystemProperties, simulationSystemPropertiesString),
+            selectProperties(simulationEnvironmentVariables, simulationEnvironmentVariablesString),
+            file);
 
     logSimulationCreatedOrChosen(result);
-    return result.runSummary;
-  }
-
-  private RunSummary interactiveCreateAndStartSimulation(
-      File file, UUID teamIdUuid, UUID packageIdUuid)
-      throws EnterprisePluginException, MojoFailureException {
-    final InteractiveEnterprisePlugin interactiveEnterprisePlugin =
-        initInteractiveEnterprisePlugin();
-
-    final SimulationStartResult result;
-    try {
-      result =
-          interactiveEnterprisePlugin.createOrStartSimulation(
-              teamIdUuid,
-              mavenProject.getGroupId(),
-              mavenProject.getArtifactId(),
-              simulationClass,
-              allSimulationClasses(),
-              packageIdUuid,
-              simulationSystemProperties,
-              file);
-    } catch (EmptyChoicesException e) {
-      throw new MojoFailureException(e.getMessage(), e);
-    }
-
-    logSimulationCreatedOrChosen(result);
-    return result.runSummary;
+    return result;
   }
 
   private void logSimulationCreatedOrChosen(SimulationStartResult result) {
@@ -208,43 +194,23 @@ public class EnterpriseStartMojo extends AbstractEnterprisePluginMojo {
     } else {
       getLog().info(CommonLogMessage.simulationChosen(result.simulation));
     }
-    getLog().info(CommonLogMessage.simulationStartSample(result.simulation));
   }
 
-  private String simulationClass() throws MojoFailureException {
-    // Solves the simulations, if no simulation file is defined
-    if (simulationClass != null) {
-      return simulationClass;
-    } else {
-      // excludes patterns are used to exclude classes from the enterprise JAR packaging, so
-      // excluded classes cannot be selected here either
-      final List<String> simulations = allSimulationClasses();
-      if (simulations.size() == 1) {
-        return simulations.get(0);
-      } else if (simulations.isEmpty()) {
-        throw new MojoFailureException(
-            "No simulation class discovered. Your project should contain at least one simulation (https://gatling.io/docs/gatling/reference/current/core/simulation/).");
-      } else {
-        final String availableSimulations =
-            simulations.stream().map(s -> "- " + s + "\n").collect(Collectors.joining());
-        final String simulationExample = simulations.get(0);
-        final String msg =
-            "Several simulation classes were found.\n"
-                + "Available simulations:\n"
-                + availableSimulations
-                + CommonLogMessage.missingConfiguration(
-                    "simulation",
-                    "simulationClass",
-                    "gatling.simulationClass",
-                    null,
-                    simulationExample);
-        throw new MojoFailureException(msg);
+  private Map<String, String> selectProperties(
+      Map<String, String> propertiesMap, String propertiesString) {
+    return (propertiesMap == null || propertiesMap.isEmpty())
+        ? PropertiesParserUtil.parseProperties(propertiesString)
+        : propertiesMap;
+  }
+
+  private void waitForRunEnd(EnterprisePlugin plugin, RunSummary startedRun)
+      throws MojoFailureException {
+    if (waitForRunEnd) {
+      final SimulationEndResult finishedRun =
+          RecoverEnterprisePluginException.handle(() -> plugin.waitForRunEnd(startedRun), getLog());
+      if (!finishedRun.status.successful) {
+        throw new MojoFailureException("Simulation failed.");
       }
     }
-  }
-
-  private List<String> allSimulationClasses() {
-    return SimulationClassUtils.resolveSimulations(
-        mavenProject, compiledClassesFolder, null, excludes);
   }
 }

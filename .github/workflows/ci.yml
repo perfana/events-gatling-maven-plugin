@@ -5,18 +5,14 @@ on:
 
 jobs:
   build:
-    strategy:
-      matrix:
-        java: [ '8', '11', '17' ]
-        os: [ 'ubuntu-latest' ]
-    runs-on: ${{ matrix.os }}
+    runs-on: 'ubuntu-latest'
     steps:
     - uses: actions/checkout@v3
     - name: Set up JDK
       uses: actions/setup-java@v3
       with:
         distribution: 'zulu'
-        java-version: ${{ matrix.java }}
+        java-version: '11'
     - name: print Java version
       run: java -version
     - uses: actions/cache@v3
@@ -28,6 +24,6 @@ jobs:
           maven-${{ runner.os }}-
           maven-
     - name: Build
-      run: mvn --no-transfer-progress -B clean spotless:check verify
+      run: mvn --no-transfer-progress -B clean verify
     - name: Clean before caching
       run: find ~/.m2 -name "_remote.repositories" | xargs --no-run-if-empty rm

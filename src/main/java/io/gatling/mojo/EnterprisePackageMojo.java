@@ -16,6 +16,8 @@
  */
 package io.gatling.mojo;
 
+import static io.gatling.mojo.MojoConstants.*;
+
 import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
@@ -45,6 +47,7 @@ public class EnterprisePackageMojo extends AbstractEnterpriseMojo {
 
   private static final String[] ALWAYS_EXCLUDES =
       new String[] {
+        "module-info.class",
         "META-INF/LICENSE",
         "META-INF/MANIFEST.MF",
         "META-INF/versions/**",
@@ -54,17 +57,14 @@ public class EnterprisePackageMojo extends AbstractEnterpriseMojo {
         "*.RSA"
       };
 
-  private static final String GATLING_GROUP_ID = "io.gatling";
-  private static final String GATLING_HIGHCHARTS_GROUP_ID = "io.gatling.highcharts";
-  private static final String GATLING_FRONTLINE_GROUP_ID = "io.gatling.frontline";
-  private static final Set<String> GATLING_GROUP_IDS;
+  private static final Set<String> EXCLUDED_NETTY_ARTIFACTS;
 
   static {
-    HashSet<String> groupIds = new HashSet<>();
-    groupIds.add(GATLING_GROUP_ID);
-    groupIds.add(GATLING_HIGHCHARTS_GROUP_ID);
-    groupIds.add(GATLING_FRONTLINE_GROUP_ID);
-    GATLING_GROUP_IDS = Collections.unmodifiableSet(groupIds);
+    Set<String> excludedNettyArtifacts = new HashSet<>();
+    excludedNettyArtifacts.add("netty-all");
+    excludedNettyArtifacts.add("netty-resolver-dns-classes-macos");
+    excludedNettyArtifacts.add("netty-resolver-dns-native-macos");
+    EXCLUDED_NETTY_ARTIFACTS = Collections.unmodifiableSet(excludedNettyArtifacts);
   }
 
   @Component private MavenProjectHelper projectHelper;
@@ -91,12 +91,14 @@ public class EnterprisePackageMojo extends AbstractEnterpriseMojo {
 
     Set<Artifact> allDeps = mavenProject.getArtifacts();
 
-    Artifact gatlingApp = findByGroupIdAndArtifactId(allDeps, GATLING_GROUP_ID, "gatling-app");
+    Artifact gatlingApp =
+        MojoUtils.findByGroupIdAndArtifactId(allDeps, GATLING_GROUP_ID, GATLING_MODULE_APP);
     Artifact gatlingChartsHighcharts =
-        findByGroupIdAndArtifactId(
-            allDeps, GATLING_HIGHCHARTS_GROUP_ID, "gatling-charts-highcharts");
+        MojoUtils.findByGroupIdAndArtifactId(
+            allDeps, GATLING_HIGHCHARTS_GROUP_ID, GATLING_MODULE_HIGHCHARTS);
     Artifact frontlineProbe =
-        findByGroupIdAndArtifactId(allDeps, GATLING_FRONTLINE_GROUP_ID, "frontline-probe");
+        MojoUtils.findByGroupIdAndArtifactId(
+            allDeps, GATLING_FRONTLINE_GROUP_ID, GATLING_FRONTLINE_MODULE_PROBE);
 
     if (gatlingApp == null) {
       throw new MojoExecutionException(
@@ -114,13 +116,13 @@ public class EnterprisePackageMojo extends AbstractEnterpriseMojo {
                 artifact ->
                     !GATLING_GROUP_IDS.contains(artifact.getGroupId())
                         && !(artifact.getGroupId().equals("io.netty")
-                            && artifact.getArtifactId().equals("netty-all"))
-                        && artifactNotIn(artifact, gatlingDependencies))
+                            && EXCLUDED_NETTY_ARTIFACTS.contains(artifact.getArtifactId()))
+                        && MojoUtils.artifactNotIn(artifact, gatlingDependencies))
             .collect(Collectors.toSet());
 
     File workingDir;
     try {
-      workingDir = Files.createTempDirectory("frontline").toFile();
+      workingDir = Files.createTempDirectory("gatling-maven").toFile();
     } catch (IOException e) {
       throw new MojoExecutionException("Failed to create temp dir", e);
     }
@@ -203,6 +205,7 @@ public class EnterprisePackageMojo extends AbstractEnterpriseMojo {
       fw.write("Implementation-Vendor: " + mavenProject.getGroupId() + "\n");
       fw.write("Specification-Vendor: GatlingCorp\n");
       fw.write("Gatling-Version: " + gatlingApp.getVersion() + "\n");
+      fw.write("Gatling-Packager: maven" + "\n");
     } catch (IOException e) {
       throw new MojoExecutionException("Failed to generate manifest", e);
     }
@@ -253,20 +256,5 @@ public class EnterprisePackageMojo extends AbstractEnterpriseMojo {
             .setLocalRepository(session.getLocalRepository())
             .setRemoteRepositories(session.getCurrentProject().getRemoteArtifactRepositories());
     return repository.resolve(request).getArtifacts();
-  }
-
-  private static boolean artifactNotIn(Artifact target, Set<Artifact> artifacts) {
-    return findByGroupIdAndArtifactId(artifacts, target.getGroupId(), target.getArtifactId())
-        == null;
-  }
-
-  private static Artifact findByGroupIdAndArtifactId(
-      Set<Artifact> artifacts, String groupId, String artifactId) {
-    for (Artifact artifact : artifacts) {
-      if (artifact.getGroupId().equals(groupId) && artifact.getArtifactId().equals(artifactId)) {
-        return artifact;
-      }
-    }
-    return null;
   }
 }

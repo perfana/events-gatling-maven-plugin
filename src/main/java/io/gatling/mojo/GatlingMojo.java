@@ -22,6 +22,7 @@ import static java.nio.file.StandardCopyOption.REPLACE_EXISTING;
 import static java.util.Arrays.stream;
 import static org.codehaus.plexus.util.StringUtils.isBlank;
 
+import io.gatling.plugin.GatlingConstants;
 import io.perfana.eventscheduler.EventScheduler;
 import io.perfana.eventscheduler.EventSchedulerBuilder;
 import io.perfana.eventscheduler.api.EventLogger;
@@ -63,7 +64,7 @@ import org.codehaus.plexus.util.SelectorUtils;
     name = "test",
     defaultPhase = LifecyclePhase.INTEGRATION_TEST,
     requiresDependencyResolution = ResolutionScope.TEST)
-public class GatlingMojo extends AbstractGatlingExecutionMojo {
+public final class GatlingMojo extends AbstractGatlingExecutionMojo {
 
   private final Object eventSchedulerLock = new Object();
   private EventScheduler eventScheduler;
@@ -160,7 +161,6 @@ public class GatlingMojo extends AbstractGatlingExecutionMojo {
   /** Executes Gatling simulations. */
   @Override
   public void execute() throws MojoExecutionException, MojoFailureException {
-
     checkPluginPreConditions();
 
     if (skip) {
@@ -193,7 +193,8 @@ public class GatlingMojo extends AbstractGatlingExecutionMojo {
       List<String> jvmArgs = gatlingJvmArgs();
 
       if (isEventSchedulerEnabled) {
-        String newTestRunId = eventScheduler.getEventSchedulerContext().getTestContext().getTestRunId();
+        String newTestRunId =
+            eventScheduler.getEventSchedulerContext().getTestContext().getTestRunId();
         replaceTestRunIdInJvmArgs(jvmArgs, newTestRunId);
       }
 
@@ -277,7 +278,8 @@ public class GatlingMojo extends AbstractGatlingExecutionMojo {
     getLog().debug(">>> testRunId from the eventScheduler: " + newTestRunId);
     String newTestRunIdJvmArg = "-DtestRunId=" + newTestRunId;
 
-    Optional<String> existingTestRunId = jvmArgs.stream().filter(jvmArg -> jvmArg.startsWith("-DtestRunId")).findAny();
+    Optional<String> existingTestRunId =
+        jvmArgs.stream().filter(jvmArg -> jvmArg.startsWith("-DtestRunId")).findAny();
 
     if (existingTestRunId.isPresent()) {
       getLog().info(">>> testRunId is present in jvm args: " + existingTestRunId.get());
@@ -285,8 +287,7 @@ public class GatlingMojo extends AbstractGatlingExecutionMojo {
         getLog().info(">>> replace testRunId in jvm args: " + newTestRunIdJvmArg);
         jvmArgs.set(jvmArgs.indexOf(existingTestRunId.get()), newTestRunIdJvmArg);
       }
-    }
-    else {
+    } else {
       getLog().info(">>> inject testRunId in jvm args:: " + newTestRunIdJvmArg);
       jvmArgs.add(newTestRunIdJvmArg);
     }
@@ -515,7 +516,7 @@ public class GatlingMojo extends AbstractGatlingExecutionMojo {
   }
 
   private List<String> gatlingJvmArgs() {
-    return computeArgs(jvmArgs, GATLING_JVM_ARGS, overrideJvmArgs);
+    return computeArgs(jvmArgs, GatlingConstants.DEFAULT_JVM_OPTIONS_BASE, overrideJvmArgs);
   }
 
   private List<String> computeArgs0(List<String> custom, List<String> defaults, boolean override) {
@@ -578,6 +579,19 @@ public class GatlingMojo extends AbstractGatlingExecutionMojo {
 
     addArg(args, "s", simulationClass);
     addArg(args, "ro", reportsOnly);
+
+    String[] gatlingVersion =
+        MojoUtils.findByGroupIdAndArtifactId(
+                mavenProject.getArtifacts(), GATLING_GROUP_ID, GATLING_MODULE_APP)
+            .getVersion()
+            .split("\\.");
+    int gatlingMajorVersion = Integer.valueOf(gatlingVersion[0]);
+    int gatlingMinorVersion = Integer.valueOf(gatlingVersion[1]);
+
+    if ((gatlingMajorVersion == 3 && gatlingMinorVersion >= 8) || gatlingMajorVersion > 4) {
+      addArg(args, "l", "maven");
+      addArg(args, "btv", MavenProject.class.getPackage().getImplementationVersion());
+    }
 
     return args;
   }

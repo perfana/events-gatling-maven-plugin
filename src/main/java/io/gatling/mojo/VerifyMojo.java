@@ -24,11 +24,10 @@ import org.apache.maven.plugin.MojoExecutionException;
 import org.apache.maven.plugin.MojoFailureException;
 import org.apache.maven.plugins.annotations.LifecyclePhase;
 import org.apache.maven.plugins.annotations.Mojo;
-import org.codehaus.plexus.util.StringUtils;
 
 /** Mojo to verify Gatling simulation results. */
 @Mojo(name = "verify", defaultPhase = LifecyclePhase.VERIFY)
-public class VerifyMojo extends AbstractGatlingExecutionMojo {
+public final class VerifyMojo extends AbstractGatlingExecutionMojo {
 
   @Override
   public void execute() throws MojoExecutionException, MojoFailureException {
@@ -60,7 +59,7 @@ public class VerifyMojo extends AbstractGatlingExecutionMojo {
   }
 
   private void checkError(String line) throws MojoFailureException {
-    if (StringUtils.contains(line, LAST_RUN_FILE_ERROR_LINE)) {
+    if (line.contains(LAST_RUN_FILE_ERROR_LINE)) {
       throwFailureException(line.substring(LAST_RUN_FILE_ERROR_LINE.length()));
     }
   }

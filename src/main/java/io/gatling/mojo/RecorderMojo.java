@@ -16,9 +16,10 @@
  */
 package io.gatling.mojo;
 
-import static io.gatling.mojo.MojoConstants.GATLING_JVM_ARGS;
 import static io.gatling.mojo.MojoConstants.RECORDER_MAIN_CLASS;
 
+import io.gatling.plugin.GatlingConstants;
+import io.gatling.plugin.util.Fork;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
@@ -35,7 +36,7 @@ import org.apache.maven.toolchain.Toolchain;
     name = "recorder",
     defaultPhase = LifecyclePhase.INTEGRATION_TEST,
     requiresDependencyResolution = ResolutionScope.TEST)
-public class RecorderMojo extends AbstractGatlingMojo {
+public final class RecorderMojo extends AbstractGatlingMojo {
 
   /** Local port used by Gatling Proxy for HTTP. */
   @Parameter(property = "gatling.recorder.localPort", alias = "lp")
@@ -54,10 +55,7 @@ public class RecorderMojo extends AbstractGatlingMojo {
   private Integer proxySSLPort;
 
   /** Uses as the folder where generated simulations will be stored. */
-  @Parameter(
-      property = "gatling.recorder.simulationsFolder",
-      alias = "sf",
-      defaultValue = "${project.basedir}/src/test/scala")
+  @Parameter(property = "gatling.recorder.simulationsFolder", alias = "sf")
   private File simulationsFolder;
 
   /** Use this folder as the folder where feeders are stored. */
@@ -88,19 +86,25 @@ public class RecorderMojo extends AbstractGatlingMojo {
 
   @Override
   public void execute() throws MojoExecutionException, MojoFailureException {
+    if (simulationsFolder == null) {
+      // project.testCompileSourceRoots typically contains exactly one element (can be set by
+      // build.testSourceDirectory in the POM); but if it is ambiguous we juste take the first one.
+      simulationsFolder = new File(mavenProject.getTestCompileSourceRoots().get(0));
+    }
+
     try {
       List<String> testClasspath = buildTestClasspath();
       List<String> recorderArgs = recorderArgs();
       Toolchain toolchain = toolchainManager.getToolchainFromBuildContext("jdk", session);
       Fork forkedRecorder =
-          new Fork(
+          newFork(
               RECORDER_MAIN_CLASS,
               testClasspath,
-              GATLING_JVM_ARGS,
+              GatlingConstants.DEFAULT_JVM_OPTIONS_BASE,
               recorderArgs,
               toolchain,
               true,
-              getLog());
+              null);
       forkedRecorder.run();
     } catch (MojoExecutionException | MojoFailureException e) {
       throw e;

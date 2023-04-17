@@ -18,6 +18,10 @@ package io.gatling.mojo;
 
 import static java.util.Arrays.asList;
 
+import io.gatling.plugin.io.PluginLogger;
+import io.gatling.plugin.util.Fork;
+import io.gatling.plugin.util.ForkMain;
+import io.gatling.plugin.util.JavaLocator;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
@@ -29,6 +33,7 @@ import org.apache.maven.plugins.annotations.Component;
 import org.apache.maven.plugins.annotations.Parameter;
 import org.apache.maven.project.MavenProject;
 import org.apache.maven.repository.RepositorySystem;
+import org.apache.maven.toolchain.Toolchain;
 import org.apache.maven.toolchain.ToolchainManager;
 
 public abstract class AbstractGatlingMojo extends AbstractMojo {
@@ -90,8 +95,9 @@ public abstract class AbstractGatlingMojo extends AbstractMojo {
 
     testClasspathElements.addAll(mavenProject.getTestClasspathElements());
 
-    // Add plugin jar to classpath (used by MainWithArgsInFile)
+    // Add plugin jar to classpath (used by ForkMain)
     testClasspathElements.add(MojoUtils.locateJar(GatlingMojo.class));
+    testClasspathElements.add(MojoUtils.locateJar(ForkMain.class));
 
     return testClasspathElements;
   }
@@ -100,5 +106,43 @@ public abstract class AbstractGatlingMojo extends AbstractMojo {
     if (value != null) {
       args.addAll(asList("-" + flag, value.toString()));
     }
+  }
+
+  private PluginLogger newPluginLogger() {
+    return new PluginLogger() {
+      @Override
+      public void info(String message) {
+        getLog().info(message);
+      }
+
+      @Override
+      public void error(String message) {
+        getLog().error(message);
+      }
+    };
+  }
+
+  protected Fork newFork(
+      String mainClassName,
+      List<String> classpath,
+      List<String> jvmArgs,
+      List<String> args,
+      Toolchain toolchain,
+      boolean propagateSystemProperties,
+      File workingDirectory) {
+
+    String fromToolchain = toolchain != null ? toolchain.findTool("java") : null;
+    File javaExec =
+        fromToolchain != null ? new File(fromToolchain) : JavaLocator.getJavaExecutable();
+
+    return new Fork(
+        mainClassName,
+        classpath,
+        jvmArgs,
+        args,
+        javaExec,
+        propagateSystemProperties,
+        newPluginLogger(),
+        workingDirectory);
   }
 }
