@@ -263,7 +263,7 @@ public final class GatlingMojo extends AbstractGatlingExecutionMojo {
       } catch (EventCheckFailureException e) {
         getLog().debug(">>> EventCheckFailureException: " + e.getMessage());
         if (!continueOnAssertionFailure) {
-          throw e;
+          throw new MojoFailureException(e.getMessage());
         } else {
           getLog()
               .warn(
