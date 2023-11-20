@@ -23,9 +23,7 @@ import java.io.FileWriter;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Collections;
-import java.util.HashSet;
-import java.util.Set;
+import java.util.*;
 import java.util.stream.Collectors;
 import org.apache.maven.artifact.Artifact;
 import org.apache.maven.artifact.resolver.ArtifactResolutionRequest;
@@ -45,17 +43,19 @@ import org.zeroturnaround.zip.commons.FileUtilsV2_2;
     requiresDependencyResolution = ResolutionScope.TEST)
 public class EnterprisePackageMojo extends AbstractEnterpriseMojo {
 
-  private static final String[] ALWAYS_EXCLUDES =
-      new String[] {
-        "module-info.class",
-        "META-INF/LICENSE",
-        "META-INF/MANIFEST.MF",
-        "META-INF/versions/**",
-        "META-INF/maven/**",
-        "*.SF",
-        "*.DSA",
-        "*.RSA"
-      };
+  private static final List<char[]> ALWAYS_EXCLUDES =
+      toChars(
+          new String[] {
+            "module-info.class",
+            "LICENSE",
+            "META-INF/LICENSE",
+            "META-INF/MANIFEST.MF",
+            "META-INF/versions/**",
+            "META-INF/maven/**",
+            "*.SF",
+            "*.DSA",
+            "*.RSA"
+          });
 
   private static final Set<String> EXCLUDED_NETTY_ARTIFACTS;
 
@@ -75,13 +75,12 @@ public class EnterprisePackageMojo extends AbstractEnterpriseMojo {
   @Parameter(property = "gatling.excludes")
   private String[] excludes;
 
-  private Set<Artifact> nonGatlingDependencies(Artifact artifact) {
-    if (artifact == null) {
-      return Collections.emptySet();
-    }
-
-    return resolveTransitively(artifact).stream()
-        .filter(art -> !GATLING_GROUP_IDS.contains(art.getGroupId()))
+  private Set<Artifact> nonGatlingDependencies(List<Artifact> artifacts) {
+    return artifacts.stream()
+        .flatMap(
+            artifact ->
+                resolveTransitively(artifact).stream()
+                    .filter(art -> !GATLING_GROUP_IDS.contains(art.getGroupId())))
         .collect(Collectors.toSet());
   }
 
@@ -91,30 +90,35 @@ public class EnterprisePackageMojo extends AbstractEnterpriseMojo {
 
     Set<Artifact> allDeps = mavenProject.getArtifacts();
 
-    Artifact gatlingApp =
-        MojoUtils.findByGroupIdAndArtifactId(allDeps, GATLING_GROUP_ID, GATLING_MODULE_APP);
-    Artifact gatlingChartsHighcharts =
-        MojoUtils.findByGroupIdAndArtifactId(
-            allDeps, GATLING_HIGHCHARTS_GROUP_ID, GATLING_MODULE_HIGHCHARTS);
-    Artifact frontlineProbe =
-        MojoUtils.findByGroupIdAndArtifactId(
-            allDeps, GATLING_FRONTLINE_GROUP_ID, GATLING_FRONTLINE_MODULE_PROBE);
-
-    if (gatlingApp == null) {
+    List<Artifact> depsWithFrontLineGroupId =
+        MojoUtils.findByGroupId(allDeps, GATLING_FRONTLINE_GROUP_ID);
+    if (!depsWithFrontLineGroupId.isEmpty()) {
       throw new MojoExecutionException(
-          "Couldn't find io.gatling:gatling-app in project dependencies");
+          "Found a dependency with group id "
+              + GATLING_FRONTLINE_GROUP_ID
+              + " in projects dependencies");
+    }
+
+    List<Artifact> depsWithGatlingGroupId = MojoUtils.findByGroupId(allDeps, GATLING_GROUP_ID);
+    List<Artifact> depsWithGatlingHighchartsGroupId =
+        MojoUtils.findByGroupId(allDeps, GATLING_HIGHCHARTS_GROUP_ID);
+    if (depsWithGatlingGroupId.isEmpty()) {
+      throw new MojoExecutionException(
+          "Couldn't find any dependencies with group id "
+              + GATLING_GROUP_ID
+              + " in project dependencies");
     }
 
     Set<Artifact> gatlingDependencies = new HashSet<>();
-    gatlingDependencies.addAll(nonGatlingDependencies(gatlingApp));
-    gatlingDependencies.addAll(nonGatlingDependencies(gatlingChartsHighcharts));
-    gatlingDependencies.addAll(nonGatlingDependencies(frontlineProbe));
+    gatlingDependencies.addAll(nonGatlingDependencies(depsWithGatlingGroupId));
+    gatlingDependencies.addAll(nonGatlingDependencies(depsWithGatlingHighchartsGroupId));
 
     Set<Artifact> filteredDeps =
         allDeps.stream()
             .filter(
                 artifact ->
-                    !GATLING_GROUP_IDS.contains(artifact.getGroupId())
+                    !artifact.getType().equals("pom")
+                        && !GATLING_GROUP_IDS.contains(artifact.getGroupId())
                         && !(artifact.getGroupId().equals("io.netty")
                             && EXCLUDED_NETTY_ARTIFACTS.contains(artifact.getArtifactId()))
                         && MojoUtils.artifactNotIn(artifact, gatlingDependencies))
@@ -127,9 +131,12 @@ public class EnterprisePackageMojo extends AbstractEnterpriseMojo {
       throw new MojoExecutionException("Failed to create temp dir", e);
     }
 
+    List<char[]> compiledExcludes = compileExcludes();
+
     // extract dep jars
     for (Artifact artifact : filteredDeps) {
-      ZipUtil.unpack(artifact.getFile(), workingDir, name -> exclude(name) ? null : name);
+      ZipUtil.unpack(
+          artifact.getFile(), workingDir, name -> exclude(name, compiledExcludes) ? null : name);
     }
 
     // copy compiled classes
@@ -143,14 +150,19 @@ public class EnterprisePackageMojo extends AbstractEnterpriseMojo {
         FileUtilsV2_2.copyDirectory(
             outputDirectory,
             workingDir,
-            pathname -> !exclude(outputDirectoryPath.relativize(pathname.toPath()).toString()),
+            pathname ->
+                !exclude(
+                    outputDirectoryPath.relativize(pathname.toPath()).toString(), compiledExcludes),
             false);
       }
       if (testOutputDirectory.exists()) {
         FileUtilsV2_2.copyDirectory(
             testOutputDirectory,
             workingDir,
-            pathname -> !exclude(testOutputDirectoryPath.relativize(pathname.toPath()).toString()),
+            pathname ->
+                !exclude(
+                    testOutputDirectoryPath.relativize(pathname.toPath()).toString(),
+                    compiledExcludes),
             false);
       }
     } catch (IOException e) {
@@ -198,13 +210,17 @@ public class EnterprisePackageMojo extends AbstractEnterpriseMojo {
     // generate fake manifest
     File manifest = new File(metaInfDir, "MANIFEST.MF");
 
+    String gatlingVersion =
+        MojoUtils.findByGroupIdAndArtifactId(allDeps, GATLING_GROUP_ID, GATLING_MODULE_APP)
+            .getVersion();
+
     try (FileWriter fw = new FileWriter(manifest)) {
       fw.write("Manifest-Version: 1.0\n");
       fw.write("Implementation-Title: " + mavenProject.getArtifactId() + "\n");
       fw.write("Implementation-Version: " + mavenProject.getVersion() + "\n");
       fw.write("Implementation-Vendor: " + mavenProject.getGroupId() + "\n");
       fw.write("Specification-Vendor: GatlingCorp\n");
-      fw.write("Gatling-Version: " + gatlingApp.getVersion() + "\n");
+      fw.write("Gatling-Version: " + gatlingVersion + "\n");
       fw.write("Gatling-Packager: maven" + "\n");
     } catch (IOException e) {
       throw new MojoExecutionException("Failed to generate manifest", e);
@@ -226,19 +242,25 @@ public class EnterprisePackageMojo extends AbstractEnterpriseMojo {
     }
   }
 
-  private boolean exclude(String name) {
-    for (String pattern : ALWAYS_EXCLUDES) {
-      if (SelectorUtils.match(pattern, name, false)) {
+  private static List<char[]> toChars(String[] patterns) {
+    return Arrays.stream(patterns).map(String::toCharArray).collect(Collectors.toList());
+  }
+
+  private List<char[]> compileExcludes() {
+    if (excludes == null) {
+      return ALWAYS_EXCLUDES;
+    }
+
+    List<char[]> compiledUserExcludes = toChars(excludes);
+    compiledUserExcludes.addAll(ALWAYS_EXCLUDES);
+    return compiledUserExcludes;
+  }
+
+  private boolean exclude(String name, List<char[]> excludes) {
+    for (char[] pattern : excludes) {
+      if (SelectorUtils.match(pattern, name.toCharArray(), false)) {
         getLog().info("Excluding file " + name);
         return true;
-      }
-    }
-    if (excludes != null) {
-      for (String pattern : excludes) {
-        if (SelectorUtils.match(pattern, name, false)) {
-          getLog().info("Excluding file " + name);
-          return true;
-        }
       }
     }
     return false;
