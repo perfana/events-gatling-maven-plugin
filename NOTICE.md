@@ -5,7 +5,7 @@ This is build on a fork of the gatling-maven-plugin.
 * https://github.com/gatling/gatling-maven-plugin
 
 It adds events during a gatling performance test.
-* https://github.com/stokpop/event-scheduler
+* https://github.com/perfana/event-scheduler
 
 Code additions have been indicated in the changed java files.
 
