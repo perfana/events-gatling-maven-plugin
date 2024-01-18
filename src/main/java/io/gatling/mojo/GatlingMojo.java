@@ -45,7 +45,6 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.*;
 import java.util.stream.Collectors;
-import org.apache.commons.exec.ExecuteException;
 import org.apache.maven.artifact.Artifact;
 import org.apache.maven.artifact.DependencyResolutionRequiredException;
 import org.apache.maven.plugin.MojoExecutionException;
@@ -372,14 +371,13 @@ public final class GatlingMojo extends AbstractGatlingExecutionMojo {
       Toolchain toolchain)
       throws Exception {
     Fork forkedGatling =
-        new Fork(
+        newFork(
             GATLING_MAIN_CLASS,
             testClasspath,
             gatlingJvmArgs,
             gatlingArgs,
             toolchain,
             propagateSystemProperties,
-            getLog(),
             workingDirectory);
 
     if (isEventSchedulerEnabled) {
@@ -393,8 +391,8 @@ public final class GatlingMojo extends AbstractGatlingExecutionMojo {
 
     try {
       forkedGatling.run();
-    } catch (ExecuteException e) {
-      if (e.getExitValue() == 2) throw new GatlingSimulationAssertionsFailedException(e);
+    } catch (Fork.ForkException e) {
+      if (e.exitValue == 2) throw new GatlingSimulationAssertionsFailedException(e);
       else throw e; /* issue 1482 */
     }
   }

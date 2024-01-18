@@ -19,7 +19,6 @@ package io.gatling.mojo;
 import static java.util.Arrays.asList;
 
 import io.gatling.plugin.io.PluginLogger;
-import io.gatling.plugin.util.Fork;
 import io.gatling.plugin.util.ForkMain;
 import io.gatling.plugin.util.JavaLocator;
 import java.io.File;

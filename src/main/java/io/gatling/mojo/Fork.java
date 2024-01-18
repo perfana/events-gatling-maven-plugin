@@ -16,38 +16,55 @@
  */
 package io.gatling.mojo;
 
+import io.gatling.plugin.io.PluginLogger;
+import io.gatling.plugin.util.ForkMain;
 import io.perfana.eventscheduler.api.SchedulerExceptionHandler;
 import io.perfana.eventscheduler.api.SchedulerExceptionType;
-import io.perfana.eventscheduler.exception.handler.AbortSchedulerException;
-import io.perfana.eventscheduler.exception.handler.KillSwitchException;
+import java.io.BufferedOutputStream;
 import java.io.File;
 import java.io.IOException;
-import java.io.PrintWriter;
+import java.net.MalformedURLException;
+import java.net.URL;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map.Entry;
-import org.apache.commons.exec.*;
-import org.apache.commons.exec.CommandLine;
-import org.apache.commons.exec.DefaultExecutor;
-import org.apache.commons.exec.Executor;
-import org.apache.commons.exec.PumpStreamHandler;
-import org.apache.commons.exec.ShutdownHookProcessDestroyer;
-import org.apache.maven.plugin.MojoFailureException;
-import org.apache.maven.plugin.logging.Log;
-import org.apache.maven.toolchain.Toolchain;
-import org.codehaus.plexus.util.StringUtils;
+import java.util.jar.Attributes;
+import java.util.jar.JarEntry;
+import java.util.jar.JarOutputStream;
+import java.util.jar.Manifest;
+import java.util.stream.Collectors;
+import org.apache.commons.exec.ExecuteWatchdog;
 
-class Fork {
+public final class Fork {
 
-  private static final String ARG_FILE_PREFIX = "gatling-maven-plugin-";
-  private static final String ARG_FILE_SUFFIX = ".args";
+  private static final String ARGS_RESOURCE = "META-INF/args.txt";
 
-  private final String javaExecutable;
+  private static final boolean IS_WINDOWS =
+      System.getProperty("os.name").toLowerCase(Locale.ROOT).startsWith("windows");
+
+  public static final class ForkException extends Exception {
+    public final int exitValue;
+
+    public ForkException(int exitValue) {
+      this.exitValue = exitValue;
+    }
+  }
+
+  private static final String GATLING_MANIFEST_VALUE = "GATLING_ZINC";
+
+  private final File javaExecutable;
   private final String mainClassName;
   private final List<String> classpath;
   private final boolean propagateSystemProperties;
-  private final Log log;
+  private final PluginLogger log;
   private final File workingDirectory;
+
+  private final List<String> jvmArgs;
+  private final List<String> args;
 
   // volatile because possibly multiple threads are involved
   private volatile SchedulerExceptionType schedulerExceptionType = SchedulerExceptionType.NONE;
@@ -79,36 +96,21 @@ class Fork {
         }
       };
 
-  private final List<String> jvmArgs = new ArrayList<>();
-  private final List<String> args = new ArrayList<>();
-
-  Fork(
-      String mainClassName, //
-      List<String> classpath, //
-      List<String> jvmArgs, //
-      List<String> args, //
-      Toolchain toolchain, //
-      boolean propagateSystemProperties, //
-      Log log) {
-
-    this(mainClassName, classpath, jvmArgs, args, toolchain, propagateSystemProperties, log, null);
-  }
-
-  Fork(
-      String mainClassName, //
-      List<String> classpath, //
-      List<String> jvmArgs, //
-      List<String> args, //
-      Toolchain toolchain, //
-      boolean propagateSystemProperties, //
-      Log log,
+  public Fork(
+      String mainClassName,
+      List<String> classpath,
+      List<String> jvmArgs,
+      List<String> args,
+      File javaExecutable,
+      boolean propagateSystemProperties,
+      PluginLogger log,
       File workingDirectory) {
 
     this.mainClassName = mainClassName;
     this.classpath = classpath;
-    this.jvmArgs.addAll(jvmArgs);
-    this.args.addAll(args);
-    this.javaExecutable = safe(toWindowsShortName(findJavaExecutable(toolchain)));
+    this.jvmArgs = Collections.unmodifiableList(jvmArgs);
+    this.args = Collections.unmodifiableList(args);
+    this.javaExecutable = javaExecutable;
     this.propagateSystemProperties = propagateSystemProperties;
     this.log = log;
     this.workingDirectory = workingDirectory;
@@ -118,8 +120,8 @@ class Fork {
     return schedulerExceptionHandler;
   }
 
-  private String toWindowsShortName(String value) {
-    if (MojoUtils.IS_WINDOWS) {
+  private static String toWindowsShortName(String value) {
+    if (IS_WINDOWS) {
       int programFilesIndex = value.indexOf("Program Files");
       if (programFilesIndex >= 0) {
         // Could be "Program Files" or "Program Files (x86)"
@@ -150,88 +152,172 @@ class Fork {
     return value.contains(" ") ? '"' + value + '"' : value;
   }
 
-  void run() throws Exception {
+  /**
+   * Escapes any values it finds into their String form.
+   *
+   * <p>So a tab becomes the characters <code>'\\'</code> and <code>'t'</code>.
+   *
+   * @param str String to escape values in
+   * @return String with escaped values
+   * @throws NullPointerException if str is <code>null</code>
+   */
+  // forked from plexus-util
+  private static String escape(String str) {
+    // improved with code from cybertiger@cyberiantiger.org
+    // unicode from him, and default for < 32's.
+    StringBuilder buffer = new StringBuilder(2 * str.length());
+    for (char ch : str.toCharArray()) {
+      // handle unicode
+      if (ch > 0xfff) {
+        buffer.append("\\u").append(Integer.toHexString(ch));
+      } else if (ch > 0xff) {
+        buffer.append("\\u0").append(Integer.toHexString(ch));
+      } else if (ch > 0x7f) {
+        buffer.append("\\u00").append(Integer.toHexString(ch));
+      } else if (ch < 32) {
+        switch (ch) {
+          case '\b':
+            buffer.append('\\').append('b');
+            break;
+          case '\n':
+            buffer.append('\\').append('n');
+            break;
+          case '\t':
+            buffer.append('\\').append('t');
+            break;
+          case '\f':
+            buffer.append('\\').append('f');
+            break;
+          case '\r':
+            buffer.append('\\').append('r');
+            break;
+          default:
+            if (ch > 0xf) {
+              buffer.append("\\u00").append(Integer.toHexString(ch));
+            } else {
+              buffer.append("\\u000").append(Integer.toHexString(ch));
+            }
+            break;
+        }
+      } else {
+        switch (ch) {
+          case '\'':
+            buffer.append('\\').append('\'');
+            break;
+          case '"':
+            buffer.append('\\').append('"');
+            break;
+          case '\\':
+            buffer.append('\\').append('\\');
+            break;
+          default:
+            buffer.append(ch);
+            break;
+        }
+      }
+    }
+    return buffer.toString();
+  }
+
+  public void run() throws Exception {
+    List<String> command = new ArrayList<>(jvmArgs.size() + 5);
+    command.add(toWindowsShortName(javaExecutable.getCanonicalPath()));
+    command.addAll(jvmArgs);
+
     if (propagateSystemProperties) {
       for (Entry<Object, Object> systemProp : System.getProperties().entrySet()) {
         String name = systemProp.getKey().toString();
         String value = toWindowsShortName(systemProp.getValue().toString());
         if (isPropagatableProperty(name)) {
           if (name.contains(" ")) {
-            log.warn(
-                "System property name '"
+            log.error(
+                "System property ("
                     + name
-                    + "' contains a whitespace and can't be propagated");
-
-          } else if (MojoUtils.IS_WINDOWS && value.contains(" ")) {
-            log.warn(
-                "System property value '"
+                    + ", "
                     + value
-                    + "' contains a whitespace and can't be propagated on Windows");
+                    + "') has a name that contains a whitespace and can't be propagated");
+
+          } else if (IS_WINDOWS && value.contains(" ")) {
+            log.error(
+                "System property ("
+                    + name
+                    + ", "
+                    + value
+                    + "') has a value that contains a whitespace and can't be propagated on Windows");
 
           } else {
-            this.jvmArgs.add("-D" + name + "=" + safe(StringUtils.escape(value)));
+            command.add("-D" + name + "=" + safe(escape(value)));
           }
         }
       }
     }
 
-    this.jvmArgs.add("-jar");
+    command.add("-jar");
+    command.add(createBooterJar(classpath, args).getCanonicalPath());
+    command.add(mainClassName);
 
-    if (log.isDebugEnabled()) {
-      log.debug(StringUtils.join(classpath.iterator(), ",\n"));
-    }
-
-    this.jvmArgs.add(
-        MojoUtils.createBooterJar(classpath, MainWithArgsInFile.class.getName())
-            .getCanonicalPath());
-
-    List<String> command = buildCommand();
-
-    Executor exec = new DefaultExecutor();
-    exec.setStreamHandler(new PumpStreamHandler(System.out, System.err, System.in));
-    exec.setProcessDestroyer(new ShutdownHookProcessDestroyer());
-    if (workingDirectory != null) {
-      exec.setWorkingDirectory(workingDirectory);
-    }
-
-    CommandLine cl = new CommandLine(javaExecutable);
-    for (String arg : command) {
-      cl.addArgument(arg, false);
-    }
-
-    if (log.isDebugEnabled()) {
-      log.debug(cl.toString());
-    }
-
-    exec.setWatchdog(gatlingProcessWatchDog);
-
-    try {
-      int exitValue = exec.execute(cl);
-      if (exitValue != 0) {
-        throw new MojoFailureException("command line returned non-zero value:" + exitValue);
-      }
-    } catch (Exception e) {
-      // these are set by the SchedulerExceptionHandler
-      if (schedulerExceptionType == SchedulerExceptionType.KILL) {
-        throw new KillSwitchException("KillSwitch killed the process! " + e.getMessage());
-      } else if (schedulerExceptionType == SchedulerExceptionType.ABORT) {
-        throw new AbortSchedulerException("AbortScheduler stopped the process! " + e.getMessage());
-      }
-      if (log.isDebugEnabled()) {
-        log.debug("Exception from executor for: " + cl.toString(), e);
-      }
-      // can expect exceptions from killed gatling process here, e.g. via kill -TERM <pid> (code 130
-      // or 143)
-      throw e;
+    Process process = new ProcessBuilder(command).directory(workingDirectory).inheritIO().start();
+    process.getOutputStream().close();
+    int exitValue = process.waitFor();
+    if (exitValue != 0) {
+      throw new io.gatling.plugin.util.Fork.ForkException(exitValue);
     }
   }
 
-  private List<String> buildCommand() throws IOException {
-    ArrayList<String> command = new ArrayList<>(jvmArgs.size() + 2);
-    command.addAll(jvmArgs);
-    command.add(mainClassName);
-    command.add(createArgFile(args).getCanonicalPath());
-    return command;
+  /**
+   * Create a jar with just a manifest containing a Main-Class entry for BooterConfiguration and a
+   * Class-Path entry for all classpath elements.
+   *
+   * @param classPath List of all classpath elements.
+   * @param args List of all parameter args
+   * @return The file pointing to the jar
+   * @throws java.io.IOException When a file operation fails.
+   */
+  private static File createBooterJar(List<String> classPath, List<String> args)
+      throws IOException {
+    File file = File.createTempFile("gatlingbooter", ".jar");
+    file.deleteOnExit();
+
+    String cp =
+        classPath.stream()
+            .map(element -> getURL(new File(element)).toExternalForm())
+            .collect(Collectors.joining(" "));
+    Manifest manifest = new Manifest();
+    manifest.getMainAttributes().putValue(Attributes.Name.MANIFEST_VERSION.toString(), "1.0");
+    manifest.getMainAttributes().putValue(Attributes.Name.CLASS_PATH.toString(), cp);
+    manifest
+        .getMainAttributes()
+        .putValue(Attributes.Name.MAIN_CLASS.toString(), ForkMain.class.getName());
+    manifest.getMainAttributes().putValue(GATLING_MANIFEST_VALUE, "true");
+
+    try (JarOutputStream jos =
+        new JarOutputStream(new BufferedOutputStream(Files.newOutputStream(file.toPath())))) {
+      jos.setLevel(JarOutputStream.STORED);
+      JarEntry manifestJarEntry = new JarEntry("META-INF/MANIFEST.MF");
+      jos.putNextEntry(manifestJarEntry);
+      manifest.write(jos);
+      jos.closeEntry();
+
+      JarEntry argsFileEntry = new JarEntry(ARGS_RESOURCE);
+      jos.putNextEntry(argsFileEntry);
+      byte[] argsBytes =
+          args.stream().collect(Collectors.joining("\n")).getBytes(StandardCharsets.UTF_8);
+      jos.write(argsBytes);
+      jos.closeEntry();
+    }
+
+    return file;
+  }
+
+  // encode any characters that do not comply with RFC 2396
+  // this is primarily to handle Windows where the user's home directory contains
+  // spaces
+  private static URL getURL(File file) {
+    try {
+      return new URL(file.toURI().toASCIIString());
+    } catch (MalformedURLException e) {
+      throw new RuntimeException(e);
+    }
   }
 
   private boolean isPropagatableProperty(String name) {
@@ -249,34 +335,5 @@ class Fork {
         && !name.equals("path.separator") //
         && !name.equals("classworlds.conf") //
         && !name.equals("org.slf4j.simpleLogger.defaultLogLevel");
-  }
-
-  private String findJavaExecutable(Toolchain toolchain) {
-    String fromToolchain = toolchain != null ? toolchain.findTool("java") : null;
-    if (fromToolchain != null) {
-      return fromToolchain;
-    } else {
-      String javaHome;
-      javaHome = System.getenv("JAVA_HOME");
-      if (javaHome == null) {
-        javaHome = System.getProperty("java.home");
-        if (javaHome == null) {
-          throw new IllegalStateException(
-              "Couldn't locate java, try setting JAVA_HOME environment variable.");
-        }
-      }
-      return javaHome + File.separator + "bin" + File.separator + "java";
-    }
-  }
-
-  private File createArgFile(List<String> args) throws IOException {
-    final File argFile = File.createTempFile(ARG_FILE_PREFIX, ARG_FILE_SUFFIX);
-    argFile.deleteOnExit();
-    try (PrintWriter out = new PrintWriter(argFile)) {
-      for (String arg : args) {
-        out.println(arg);
-      }
-      return argFile;
-    }
   }
 }

@@ -19,7 +19,6 @@ package io.gatling.mojo;
 import static io.gatling.mojo.MojoConstants.RECORDER_MAIN_CLASS;
 
 import io.gatling.plugin.GatlingConstants;
-import io.gatling.plugin.util.Fork;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
