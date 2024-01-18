@@ -9,7 +9,7 @@
 
     <groupId>io.perfana</groupId>
     <artifactId>events-gatling-maven-plugin</artifactId>
-    <version>4.7.0-events-1-SNAPSHOT</version>
+    <version>4.7.0-events-1</version>
     <name>events-gatling-maven-plugin</name>
     <description>Forked from gatling-maven-plugin, this version adds event-scheduler integration.</description>
     <packaging>maven-plugin</packaging>
@@ -95,7 +95,7 @@
         <maven-surefire-plugin.version>3.1.0</maven-surefire-plugin.version>
         <spotless-maven-plugin.version>2.41.1</spotless-maven-plugin.version>
         <gatling-enterprise-plugin-commons.version>1.8.0</gatling-enterprise-plugin-commons.version>
-        <event-scheduler.version>4.0.2</event-scheduler.version>
+        <event-scheduler.version>4.0.3</event-scheduler.version>
     </properties>
 
     <dependencies>
