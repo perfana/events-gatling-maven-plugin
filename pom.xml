@@ -78,7 +78,7 @@
     <properties>
         <encoding>UTF-8</encoding>
         <maven.compiler.release>11</maven.compiler.release>
-        <maven3.version>3.0</maven3.version>
+        <maven3.version>3.9.12</maven3.version>
         <plexus-utils.version>3.4.2</plexus-utils.version>
         <header.basedir>${project.basedir}</header.basedir>
         <junit.version>5.10.1</junit.version>
@@ -222,7 +222,7 @@
                             <include>src/main/java/**/*.java</include>
                             <include>src/test/java/**/*.java</include>
                         </includes>
-                        <googleJavaFormat />
+                        <googleJavaFormat/>
                         <licenseHeader>
                             <file>${header.basedir}/src/etc/header.txt</file>
                         </licenseHeader>
